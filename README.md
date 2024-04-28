@@ -1,6 +1,6 @@
 ## Project Background
 Escape the Maze was my final assignment in the Computer Graphics course. 
-Escape the Maze is a 3d game made using WebGL primitive shapes and textures.
+Escape the Maze is a 3d game made using WebGL1.0 primitive shapes and textures.
 There are three levels and a title menu with several options.
 
 ## How to Play the Game

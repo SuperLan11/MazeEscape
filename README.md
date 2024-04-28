@@ -4,6 +4,8 @@ Escape the Maze is a 3d game made using WebGL primitive shapes and textures.
 There are three levels and a title menu with several options.
 
 ## How to Play the Game
+To download the project files, click the Code button, click Download ZIP, and extract the folder.
+Open MazeEscape.html in the extracted folder to start the game.
 
 ## Credits
 All sound effects were used with a royalty-free license from Pixabay.

@@ -14,6 +14,10 @@
 		Textures - Textures are arrays of data you can randomly acces in your shader program.  
 		
 		Varying - are way for a vertex shader to pass data to the fragmentShader.
+		
+		Pascal case for functions
+		Camel case for variables
+		underscores for global or shader stuff
 		-->
 		<script id="2dVertexShader" type="notjs">	
 			// attributes to send to fragment shader
@@ -667,6 +671,7 @@
 						if(m.CheckCollision(this, this.loc, m.Trigger[triggerKey], m.Trigger[triggerKey].loc))
 						{
 							this.OnTriggerEnter(m.Trigger[triggerKey]);
+							
 							m.Trigger[triggerKey].OnCollisionEnter(this);
 						}
 					}
@@ -691,15 +696,17 @@
 				constructor()
 				{
 					super();
-
-					this.loc = [0,0,0];
-					this.name = "Camera";
+					
 					this.hp = 5;
 					
 					var tempLoc = gl.getUniformLocation(m.program,'n');		
 					var nearVal = gl.getUniform(m.program, tempLoc);																
 					
-					this.collisionRadius = Math.sqrt(2*(nearVal**2));										
+					this.collisionRadius = Math.sqrt(2*(nearVal**2));	
+
+					this.walkSpeed = 0.05;
+					this.rotateSpeed = 0.02;
+					this.strafeSpeed = 0.05;
 				}
 				
 				Update()
@@ -713,24 +720,24 @@
 										
 					if(m.TestKey("A"))
 					{						
-						this.angVelocity[1] = -0.02 * m.gameSpeed;
+						this.angVelocity[1] = -this.rotateSpeed * m.gameSpeed;
 					}
 					if(m.TestKey("D"))
 					{						
-						this.angVelocity[1] = 0.02 * m.gameSpeed;
+						this.angVelocity[1] = this.rotateSpeed * m.gameSpeed;
 					}	
 					if(m.TestKey("W"))
 					{								
 						for(let i = 0; i < 3; i++)
 						{
-							this.velocity[i] = this.transform.forward[i] * 0.05 * m.gameSpeed;
+							this.velocity[i] = this.transform.forward[i] * this.walkSpeed * m.gameSpeed;
 						}
 					}
 					if(m.TestKey("S"))
 					{						
 						for(let i = 0; i < 3; i++)
 						{
-							this.velocity[i] = this.transform.forward[i] * -0.05 * m.gameSpeed;
+							this.velocity[i] = this.transform.forward[i] * -this.walkSpeed * m.gameSpeed;
 						}
 					}		
 
@@ -738,7 +745,7 @@
 					{						
 						for(let i = 0; i < 3; i++)
 						{
-							this.velocity[i] = this.transform.right[i] * -0.05 * m.gameSpeed;
+							this.velocity[i] = this.transform.right[i] * -this.strafeSpeed * m.gameSpeed;
 						}
 					}		
 
@@ -746,7 +753,7 @@
 					{						
 						for(let i = 0; i < 3; i++)
 						{
-							this.velocity[i] = this.transform.right[i] * 0.03 * m.gameSpeed;
+							this.velocity[i] = this.transform.right[i] * this.strafeSpeed * m.gameSpeed;
 						}
 					}					
 
@@ -754,21 +761,7 @@
 					// shoot a bullet if space pressed
 					if(" " in m.Keys && m.Keys[" "])
 					{
-						// offset z for bullet so it spawns in front of player
-						var offsetLoc = [];
-						// shallow copy so offsetLoc doesn't reference Camera loc
-						for(let i = 0; i < this.loc.length; i++)
-						{
-							offsetLoc[i] = this.loc[i];
-							// change only x and z for offset
-							if(i == 0 || i == 2)
-							{
-								offsetLoc[i] += (this.transform.forward[i] * 1);				
-							}													
-						}												
-											
-						m.CreateObject(2, Fireball, offsetLoc, this.rot);
-						document.getElementById("fireball").play();
+						this.ShootFireball();
 						// disable key immediately after pressing space so bullet only fires on keydown
 						m.Keys[" "] = false;											
 					}
@@ -776,7 +769,26 @@
 					this.Move();														
 				}		
 				
-				UpdateHp()
+				ShootFireball()
+				{
+					// offset z for bullet so it spawns in front of player
+					var offsetLoc = [];
+					// shallow copy so offsetLoc doesn't reference Camera loc
+					for(let i = 0; i < this.loc.length; i++)
+					{
+						offsetLoc[i] = this.loc[i];
+						// change only x and z for offset
+						if(i == 0 || i == 2)
+						{
+							offsetLoc[i] += (this.transform.forward[i] * 1);				
+						}													
+					}												
+										
+					m.CreateObject(2, Fireball, offsetLoc, this.rot);
+					document.getElementById("fireball").play();
+				}	
+				
+				UpdateHpBar()
 				{		
 					var hpBar = document.getElementById("hp");
 					hpBar.innerHTML = "";					
@@ -791,16 +803,21 @@
 					if(other instanceof Enemy && !other.isExploding)
 					{
 						this.hp--;
-						this.UpdateHp();
+						this.UpdateHpBar();
 						document.getElementById("damage").play();
 						//console.log("took damage");
-					}					
+					}		
+					else if(other instanceof PurpleFireball)
+					{
+						other.doDestroy = true;
+						this.hp--;
+					}
 					
 					if(this.hp <= 0)
-					{						
-						m.ResetPlayer = true;
+					{												
+						m.ResetPlayer();
 						this.hp = 5;						
-						this.UpdateHp();						
+						this.UpdateHpBar();						
 					}									
 				}
 
@@ -811,15 +828,15 @@
 						this.hp--;	
 						document.getElementById("damage").play();
 						other.doDestroy = true;
-						this.UpdateHp();
+						this.UpdateHpBar();
 						//console.log("took damage");	
 					}
 					
 					if(this.hp <= 0)
-					{
-						m.ResetPlayer = true;
+					{						
+						m.ResetPlayer();
 						this.hp = 5;						
-						this.UpdateHp();						
+						this.UpdateHpBar();						
 					}
 					
 					//console.log("cam hp: " + this.hp);
@@ -836,15 +853,12 @@
 				
 			}			
 			
-			class Fireball extends GameObject
+			class Projectile extends GameObject
 			{
-				
+			
 				constructor()
 				{
-					super();
-					
-					this.collisionRadius = 0.4;
-					this.name = "Fireball";		
+					super();												
 
 					this.isTrigger = true;
 					
@@ -862,29 +876,21 @@
 					];
 					
 					this.vertCount = 6;
-					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
-
-					this.speedMultiplier = 0.1 * m.gameSpeed;
-					
-					this.velocity = [0, 0, 0];
-					this.rot = [0, 0, 0];
-										
-					this.MyPicture = fireball;				
-					this.MyTexture = gl.createTexture();
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					//We only want to do this once.
-					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,64,64,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);																						
 				}
 				
-				// on trigger used instead of on collision since bullet is trigger
 				OnTriggerEnter(other)
 				{
 					if(other instanceof WallCube)
 					{
 						this.doDestroy = true;
 					}
-					else if(other instanceof Enemy)
+					else if(other instanceof Enemy && !(other instanceof BossBoo))
 					{						
+						this.doDestroy = true;				
+					}
+					else if(other instanceof Camera)
+					{
 						this.doDestroy = true;				
 					}
 				}
@@ -916,8 +922,7 @@
 					var offset = 0;        // start at the beginning of the buffer
 					gl.enableVertexAttribArray(positionAttributeLocation);
 					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
-					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!TEXTURE CHANGE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+										
 					//Now we have to do this for color
 					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
 					//We don't have to bind because we already have the correct buffer bound.
@@ -925,7 +930,7 @@
 					type = gl.FLOAT;
 					normalize = false;
 					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
-					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
+					offset = 3*Float32Array.BYTES_PER_ELEMENT;	//size of the offset
 					gl.enableVertexAttribArray(colorAttributeLocation);
 					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
 							
@@ -935,279 +940,82 @@
 					//Sets up our T
 					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
 					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);										
 							
 					var tranLoc  = gl.getUniformLocation(program,'u_translation');
 					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
 					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
 					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));				 				
-				 
-					 //var ibuffer = gl.createBuffer();
-					 //gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ibuffer);
-					 //gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint8Array(this.indexOrder),gl.STATIC_DRAW);
-					 //gl.drawElements(gl.TRIANGLES,this.indexOrder.length,gl.UNSIGNED_BYTE,0);
-					 gl.drawArrays(gl.TRIANGLES, 0, this.vertCount);					 
+				 					 
+					gl.drawArrays(gl.TRIANGLES, 0, this.vertCount);					 
 				}
-				
-			}			
+							
+			}
 			
-			class PurpleFireball extends GameObject
+			class Fireball extends Projectile
 			{
 				
 				constructor()
 				{
 					super();
 					
-					this.collisionRadius = 0.9;
-					this.name = "Fireball";	
-
-					this.isTrigger = true;
+					this.collisionRadius = 0.4;									
+					this.speedMultiplier = 0.1 * m.gameSpeed;									
+										
+					this.MyPicture = fireball;				
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,64,64,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+				}										
+								
+			}			
+			
+			class PurpleFireball extends Projectile
+			{
+				
+				constructor()
+				{
+					super();
 					
-					this.buffer = gl.createBuffer();
-					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-					
-					this.vertices = [
-						-0.6, -0.6, -0.6,  0, 0,
-						0.6, -0.6, -0.6,  -1, 0,											
-						0.6, 0.6, -0.6,  -1, -1,
-						
-						0.6, 0.6, -0.6,  -1, -1,
-						-0.6, 0.6, -0.6,  0, -1,
-						-0.6, -0.6, -0.6,  0, 0
-					];
-					
-					this.Resize(2);
-					
-					this.vertCount = 6;
-					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
-
-					this.speedMultiplier = 0.1 * m.gameSpeed;
-					
-					this.velocity = [0, 0, 0];
-					this.rot = [0, 0, 0];
+					this.collisionRadius = 0.9;					
+					this.speedMultiplier = 0.1 * m.gameSpeed;					
 										
 					this.MyPicture = purpleFireball;											
 					this.MyTexture = gl.createTexture();
 					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
 					//We only want to do this once.
 					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,64,64,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
-				}
-				
-				OnCollisionEnter(other)
-				{
-					if(other instanceof Camera)
-					{
-						other.hp--;
-						console.log("took damage");
-						this.doDestroy = true;
-					}
-				}
-				
-				// on trigger used instead of on collision since bullet is trigger
-				OnTriggerEnter(other)
-				{
-					if(other instanceof WallCube)
-					{
-						this.doDestroy = true;
-						//console.log("destroying purple");
-					}										
-				}
-				
-				Update()
-				{
-					this.transform.doRotations(this.rot);
-					var direction = this.transform.forward;				
-					
-					// move bullet forward relative to where it is facing		
-					for(let i = 0; i < 3; i++)
-					{
-						this.velocity[i] = direction[i] * this.speedMultiplier * m.gameSpeed;				
-					}					
-					
-					this.Move();																
-				}
-				
-				Render(program)
-				{
-					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
-					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-					var size = 3;          // 2 components per iteration
-					var type = gl.FLOAT;   // the data is 32bit floats
-					var normalize = false; // don't normalize the data
-					
-					//Make sure you change this to 5 for your TEXTURES
-					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
-					var offset = 0;        // start at the beginning of the buffer
-					gl.enableVertexAttribArray(positionAttributeLocation);
-					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
-					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!TEXTURE CHANGE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-					//Now we have to do this for color
-					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
-					//We don't have to bind because we already have the correct buffer bound.
-					size = 2;
-					type = gl.FLOAT;
-					normalize = false;
-					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
-					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
-					gl.enableVertexAttribArray(colorAttributeLocation);
-					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
-							
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					//setup S
-					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
-					//Sets up our T
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-							
-					var tranLoc  = gl.getUniformLocation(program,'u_translation');
-					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
-					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
-					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));	
-
-					// uniforms are like state machines, makes crate face camera
-					var FaceCamLoc = gl.getUniformLocation(program,'FaceCam');
-					// uniform1i is 1 integer
-					gl.uniform1i(FaceCamLoc,true);				 					 
-					 // set face camera for all other objects to not face camera
-					 gl.uniform1i(FaceCamLoc,false);					
-				 
-					 //var ibuffer = gl.createBuffer();
-					 //gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ibuffer);
-					 //gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint8Array(this.indexOrder),gl.STATIC_DRAW);
-					 //gl.drawElements(gl.TRIANGLES,this.indexOrder.length,gl.UNSIGNED_BYTE,0);
-					 gl.drawArrays(gl.TRIANGLES, 0, this.vertCount);					 
-				}
+				}											
 				
 			}		
 
-			class Bone extends GameObject
+			class Bone extends Projectile
 			{
 				
 				constructor()
 				{
 					super();
 					
-					this.collisionRadius = 0.6;
-					this.name = "Bullet";
-					
-					this.isTrigger = true;
-					
-					this.buffer = gl.createBuffer();
-					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-					
-					this.vertices = [
-						-0.6, -0.6, -0.6,  0, 0,
-						0.6, -0.6, -0.6,  -1, 0,											
-						0.6, 0.6, -0.6,  -1, -1,
-						
-						0.6, 0.6, -0.6,  -1, -1,
-						-0.6, 0.6, -0.6,  0, -1,
-						-0.6, -0.6, -0.6,  0, 0
-					];
-					
-					this.vertCount = 6;
-					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
-
-					this.speedMultiplier = 0.1 * m.gameSpeed;
-					
-					this.velocity = [0, 0, 0];
-					this.rot = [0, 0, 0];
+					this.collisionRadius = 0.6;														
+					this.speedMultiplier = 0.1 * m.gameSpeed;					
 					
 					this.MyPicture = bone;
 					this.MyTexture = gl.createTexture();
 					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
 					//We only want to do this once.
-					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
-				}					
-				
-				OnTriggerEnter(other)
-				{
-					if(other instanceof WallCube)
-					{
-						this.doDestroy = true;
-						//console.log("destroying bone on wall");
-					}					
-					else if(other instanceof Camera)
-					{
-						this.doDestroy = true;	
-						//console.log("destroying bone on camera");						
-					}
-				}
-				
-				Update()
-				{
-					this.transform.doRotations(this.rot);
-					var direction = this.transform.forward;				
-					
-					// move bullet forward relative to where it is facing		
-					for(let i = 0; i < 3; i++)
-					{
-						this.velocity[i] = direction[i] * this.speedMultiplier * m.gameSpeed;		
-					}					
-					
-					this.Move();													
-				}
-				
-				Render(program)
-				{
-					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
-					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-					var size = 3;          // 2 components per iteration
-					var type = gl.FLOAT;   // the data is 32bit floats
-					var normalize = false; // don't normalize the data
-					
-					//Make sure you change this to 5 for your TEXTURES
-					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
-					var offset = 0;        // start at the beginning of the buffer
-					gl.enableVertexAttribArray(positionAttributeLocation);
-					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
-					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!TEXTURE CHANGE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-					//Now we have to do this for color
-					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
-					//We don't have to bind because we already have the correct buffer bound.
-					size = 2;
-					type = gl.FLOAT;
-					normalize = false;
-					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
-					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
-					gl.enableVertexAttribArray(colorAttributeLocation);
-					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
-							
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					//setup S
-					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
-					//Sets up our T
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-							
-					var tranLoc  = gl.getUniformLocation(program,'u_translation');
-					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
-					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
-					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));				 				
-				 
-					 //var ibuffer = gl.createBuffer();
-					 //gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ibuffer);
-					 //gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint8Array(this.indexOrder),gl.STATIC_DRAW);
-					 //gl.drawElements(gl.TRIANGLES,this.indexOrder.length,gl.UNSIGNED_BYTE,0);
-					 gl.drawArrays(gl.TRIANGLES, 0, this.vertCount);					 
-				}
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,64,64,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+				}												
 				
 			}						
 			
 			class Ground extends GameObject
 			{
+			
 				constructor()
 				{
 					super();
-					this.buffer = gl.createBuffer();
-					this.name = "Ground";
+					this.buffer = gl.createBuffer();					
 					
 					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
 					
@@ -1233,9 +1041,7 @@
 					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.picture));
 				
 					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
-					this.loc = [0,0,0];
-					this.rot = [0,0,0];
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);					
 				}
 				
 				Update()
@@ -1256,9 +1062,7 @@
 					var offset = 0;        // start at the beginning of the buffer
 					gl.enableVertexAttribArray(positionAttributeLocation);
 					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
-					
-					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!TEXTURE CHANGE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+														
 					//Now we have to do this for color
 					var TexAttributeLocation = gl.getAttribLocation(program,"texcord");
 					//We don't have to bind because we already have the correct buffer bound.
@@ -1276,32 +1080,26 @@
 					//Sets up our T, sets what happens when going over the texture coordinates
 					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
 					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);			
-							
-							
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);								
 					
 					var tranLoc  = gl.getUniformLocation(program,'u_translation');
 					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
 					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
-					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));
-				 
-				 //var ibuffer = gl.createBuffer();
-				 //gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ibuffer);
-				 //gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint8Array(this.indexOrder),gl.STATIC_DRAW);
-				 //gl.drawElements(gl.TRIANGLES,this.indexOrder.length,gl.UNSIGNED_BYTE,0);
-				 gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));				 
+					
+					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 				}
+				
 			}
 			
 			class WallCube extends GameObject
 			{
 				constructor()
 				{
-					super();					
+					super();			
+					
 					this.isTrigger = false;
-					this.buffer = gl.createBuffer();
-					this.name = "WallCube";
+					this.buffer = gl.createBuffer();					
 
 					this.collisionRadius = 1.4;
 					this.sideLength = 2.0;
@@ -1310,17 +1108,60 @@
 					
 					this.isCube = true;														 											
 					
-					this.vertCount = 24;																		
-				
-					//gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
-					this.loc = [0,0,0];
-					this.rot = [0,0,0];
+					this.vertCount = 24;																							
 				}
 				
 				Update()
 				{
 					// wall does not move
-				}							
+				}	
+
+				Render(program)
+				{
+					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+					var size = 3;          // 2 components per iteration
+					var type = gl.FLOAT;   // the data is 32bit floats
+					var normalize = false; // don't normalize the data
+					
+					//Make sure you change this to 5 for your TEXTURES
+					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
+					var offset = 0;        // start at the beginning of the buffer
+					gl.enableVertexAttribArray(positionAttributeLocation);
+					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
+					
+					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!TEXTURE CHANGE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+					//Now we have to do this for color
+					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
+					//We don't have to bind because we already have the correct buffer bound.
+					size = 2;
+					type = gl.FLOAT;
+					normalize = false;
+					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
+					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
+					gl.enableVertexAttribArray(colorAttributeLocation);
+					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
+							
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//setup S
+					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.MIRRORED_REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
+					//Sets up our T
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.MIRRORED_REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);					
+					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+							
+					var tranLoc  = gl.getUniformLocation(program,'u_translation');
+					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
+					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
+					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));
+				 
+					//var ibuffer = gl.createBuffer();
+					//gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ibuffer);
+					//gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint8Array(this.indexOrder),gl.STATIC_DRAW);
+					//gl.drawElements(gl.TRIANGLES,this.indexOrder.length,gl.UNSIGNED_BYTE,0);
+					gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.vertCount);
+				}				
 			}
 			
 			class WallCube1 extends WallCube
@@ -1367,79 +1208,23 @@
 						
 						1, 1, 1,  1, 1,
 						-1, 1, 1,  0, 1,
-						-1, -1, 1,  0, 0
-						
-						// top wall of cube
-						/*-1, 1, -1,  0, 0,
-						1, 1, -1,  16, 0,
-						1, 1, 1,  16, 16,
-						
-						1, 1, 1,  0, 0,
-						-1, 1, 1,  16, 0,
-						-1, 1, -1,  16, 16*/
-					];											
-					
-					this.MyPicture = wallTexture1;
+						-1, -1, 1,  0, 0						
+					];																					
 										
 					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
-					
-					
+										
+					this.MyPicture = wallTexture1;				
 					this.MyTexture = gl.createTexture();
 					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
 					//We only want to do this once.
 					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,256,256,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
 				}
-				
-				Render(program)
-				{
-					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
-					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-					var size = 3;          // 2 components per iteration
-					var type = gl.FLOAT;   // the data is 32bit floats
-					var normalize = false; // don't normalize the data
-					
-					//Make sure you change this to 5 for your TEXTURES
-					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
-					var offset = 0;        // start at the beginning of the buffer
-					gl.enableVertexAttribArray(positionAttributeLocation);
-					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
-					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!TEXTURE CHANGE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-					//Now we have to do this for color
-					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
-					//We don't have to bind because we already have the correct buffer bound.
-					size = 2;
-					type = gl.FLOAT;
-					normalize = false;
-					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
-					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
-					gl.enableVertexAttribArray(colorAttributeLocation);
-					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
-							
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					//setup S
-					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.MIRRORED_REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
-					//Sets up our T
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.MIRRORED_REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-							
-					var tranLoc  = gl.getUniformLocation(program,'u_translation');
-					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
-					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
-					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));
-				 
-					//var ibuffer = gl.createBuffer();
-					//gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ibuffer);
-					//gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint8Array(this.indexOrder),gl.STATIC_DRAW);
-					//gl.drawElements(gl.TRIANGLES,this.indexOrder.length,gl.UNSIGNED_BYTE,0);
-					gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.vertCount);
-				}
+								
 			}
 			
 			class WallCube2 extends WallCube
 			{
+			
 				constructor()
 				{					
 					super();
@@ -1482,74 +1267,18 @@
 						
 						1, 1, 1,  1, 1,
 						-1, 1, 1,  0, 1,
-						-1, -1, 1,  0, 0
-						
-						// top wall of cube
-						/*-1, 1, -1,  0, 0,
-						1, 1, -1,  16, 0,
-						1, 1, 1,  16, 16,
-						
-						1, 1, 1,  0, 0,
-						-1, 1, 1,  16, 0,
-						-1, 1, -1,  16, 16*/
-					];										
-					
-					this.MyPicture = wallTexture2;
+						-1, -1, 1,  0, 0						
+					];																			
 										
 					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
 					
+					this.MyPicture = wallTexture2;
 					this.MyTexture = gl.createTexture();
 					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
 					//We only want to do this once.
 					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
 				}
-
-				Render(program)
-				{
-					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
-					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-					var size = 3;          // 2 components per iteration
-					var type = gl.FLOAT;   // the data is 32bit floats
-					var normalize = false; // don't normalize the data
-					
-					//Make sure you change this to 5 for your TEXTURES
-					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
-					var offset = 0;        // start at the beginning of the buffer
-					gl.enableVertexAttribArray(positionAttributeLocation);
-					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
-					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!TEXTURE CHANGE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-					//Now we have to do this for color
-					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
-					//We don't have to bind because we already have the correct buffer bound.
-					size = 2;
-					type = gl.FLOAT;
-					normalize = false;
-					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
-					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
-					gl.enableVertexAttribArray(colorAttributeLocation);
-					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
-							
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					//setup S
-					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.MIRRORED_REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
-					//Sets up our T
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.MIRRORED_REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-							
-					var tranLoc  = gl.getUniformLocation(program,'u_translation');
-					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
-					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
-					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));
-				 
-					//var ibuffer = gl.createBuffer();
-					//gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ibuffer);
-					//gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint8Array(this.indexOrder),gl.STATIC_DRAW);
-					//gl.drawElements(gl.TRIANGLES,this.indexOrder.length,gl.UNSIGNED_BYTE,0);
-					gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.vertCount);
-				}
+				
 			}	
 
 			class Enemy extends GameObject
@@ -1559,16 +1288,11 @@
 					super();					
 					this.isTrigger = false;
 					this.buffer = gl.createBuffer();
-					this.name = "WallCube";									
-					
-					this.collisionRadius = 0.5;				
-					//this.sideLength = 2.0;																																	 																																	
+																
+					this.collisionRadius = 0.5;																																									 																																
 				
 					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
-					
-					this.loc = [0,0,0];
-					this.rot = [0,0,0];
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);					
 					
 					this.isExploding = false;
 					this.explosionTimer = 50 / (0.75*m.gameSpeed);
@@ -1576,6 +1300,8 @@
 					this.isFlashing = false;
 					this.flashTimer = 15/m.gameSpeed;
 					this.flashLength = 15/m.gameSpeed;
+					
+					this.animNum = 1;					
 				}
 				
 				Update()
@@ -1587,16 +1313,8 @@
 				{																		
 					this.MyPicture = this.redAnimations[this.animNum]
 					this.MyTexture = gl.createTexture();
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					
-					if(this instanceof Skeleton)
-					{
-						gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
-					}
-					/*else
-					{
-						gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,512,512,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
-					}*/
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);					
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));													
 					
 					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
 					//setup S
@@ -1605,8 +1323,7 @@
 					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
 					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);			
-				}
-				 
+				}				 
 
 				AboutToHitObject()
 				{
@@ -1657,21 +1374,27 @@
 						}
 					}											
 					return false;
-				}					
+				}		
+	
+				FlipDirection()
+				{
+					// slighty move enemy back to prevent clipping
+					this.loc[0] -= this.velocity[0];
+					this.loc[2] -= this.velocity[2];
+					
+					// start moving in opposite direction
+					this.velocity[0] *= -1;
+					this.velocity[2] *= -1;
+					
+					this.rot[1] += Math.PI;					
+				}
+				
 				
 				OnCollisionEnter(other)
 				{
 					if(other instanceof Candle || other instanceof GoalFlag || other instanceof Enemy)
-					{
-						// slighty move enemy back to prevent clipping
-						this.loc[0] -= this.velocity[0];
-						this.loc[2] -= this.velocity[2];
-						
-						// start moving in opposite direction
-						this.velocity[0] *= -1;
-						this.velocity[2] *= -1;	
-						
-						this.rot[1] += Math.PI;
+					{						
+						this.FlipDirection();											
 					}					
 				}
 				
@@ -1691,13 +1414,35 @@
 						this.MyPicture = explosion;
 						this.MyTexture = gl.createTexture();
 						gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);						
-						gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,512,512,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+						gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
 						
 						document.getElementById("boom").play();
 						
 						this.isExploding = true;
 					}
 				}
+				
+				Animate()
+				{		
+					if(this.isExploding)
+					{
+						return;
+					}
+						
+					if(!this.isFlashing)
+					{
+						this.MyPicture = this.animations[this.animNum];
+					}
+					else
+					{
+						this.MyPicture = this.redAnimations[this.animNum];
+					}
+															
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+				}		
 
 				GetOpenTiles()
 				{
@@ -1780,6 +1525,56 @@
 							break;
 					}
 				}
+				
+				Render(program)
+				{
+					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+					var size = 3;          // 2 components per iteration
+					var type = gl.FLOAT;   // the data is 32bit floats
+					var normalize = false; // don't normalize the data
+					
+					//Make sure you change this to 5 for your TEXTURES
+					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
+					var offset = 0;        // start at the beginning of the buffer
+					gl.enableVertexAttribArray(positionAttributeLocation);
+					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
+										
+					//Now we have to do this for color
+					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
+					//We don't have to bind because we already have the correct buffer bound.
+					size = 2;
+					type = gl.FLOAT;
+					normalize = false;
+					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
+					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
+					gl.enableVertexAttribArray(colorAttributeLocation);
+					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
+							
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//setup S
+					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
+					//Sets up our T
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);										
+							
+					var tranLoc  = gl.getUniformLocation(program,'u_translation');
+					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
+					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
+					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));
+				 
+					// uniforms are like state machines, makes crate face camera
+					var FaceCamLoc = gl.getUniformLocation(program,'FaceCam');
+					// uniform1i is 1 integer
+					gl.uniform1i(FaceCamLoc,true);
+				 
+					gl.drawArrays(gl.TRIANGLES, 0, this.vertCount);
+					 
+					// set face camera for all other objects to not face camera
+					gl.uniform1i(FaceCamLoc,false);
+				}
+				
 			}
 			
 			class Boo extends Enemy
@@ -1803,12 +1598,10 @@
 					this.vertCount = 6;									
 					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
 					
-					this.speed = 0.03 * m.gameSpeed;
-					this.hp = 4;
+					this.speed = 0.045 * m.gameSpeed;
+					this.hp = 4;									
 					
-					this.name = "Boo";
-					
-					this.velocity = [0,0,this.speed*m.gameSpeed];					
+					this.velocity = [0,0,this.speed];					
 					
 					this.MyPicture = kingBoo;
 					this.MyTexture = gl.createTexture();
@@ -1818,17 +1611,15 @@
 					
 					this.animations = [kingBoo, boo2, kingBoo, boo3];
 					this.redAnimations = [redKingBoo, redKingBoo2, redKingBoo, redKingBoo3];
-					this.animTimer = 20 / (0.75*m.gameSpeed);
-					this.animNum = 1;					
+					this.animTimer = 20 / (0.75*m.gameSpeed);	
+					this.animLength = 20 / (0.75*m.gameSpeed);
 				}
 				
 				Update()
 				{					
 					if(this.AboutToHitObject())
-					{						
-						//this.rot[1] += Math.PI;
-						this.velocity[0] *= -1;
-						this.velocity[2] *= -1;						
+					{												
+						this.FlipDirection();				
 					}
 					this.transform.doRotations(this.rot);					
 					
@@ -1848,7 +1639,7 @@
 					this.animTimer--;
 					if(this.animTimer <= 0)
 					{
-						this.animTimer = 20;
+						this.animTimer = this.animLength;
 						this.animNum++;
 						if(this.animNum == this.animations.length)
 						{
@@ -1870,83 +1661,10 @@
 						m.DestroyObject(this.id);
 						//console.log("destroying enemy");
 					}
+					
 					this.Move();									
-				}			
-
-				Animate()
-				{				
-					if(this.isExploding)
-						return;
-						
-					if(!this.isFlashing)
-					{
-						this.MyPicture = this.animations[this.animNum];
-					}
-					else
-					{
-						this.MyPicture = this.redAnimations[this.animNum];
-					}
-											
-					this.MyTexture = gl.createTexture();
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					//We only want to do this once.
-					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
 				}						
-				
-				Render(program)
-				{
-					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
-					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-					var size = 3;          // 2 components per iteration
-					var type = gl.FLOAT;   // the data is 32bit floats
-					var normalize = false; // don't normalize the data
-					
-					//Make sure you change this to 5 for your TEXTURES
-					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
-					var offset = 0;        // start at the beginning of the buffer
-					gl.enableVertexAttribArray(positionAttributeLocation);
-					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
-					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!TEXTURE CHANGE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-					//Now we have to do this for color
-					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
-					//We don't have to bind because we already have the correct buffer bound.
-					size = 2;
-					type = gl.FLOAT;
-					normalize = false;
-					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
-					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
-					gl.enableVertexAttribArray(colorAttributeLocation);
-					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
-							
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					//setup S
-					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
-					//Sets up our T
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-							
-					var tranLoc  = gl.getUniformLocation(program,'u_translation');
-					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
-					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
-					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));
-				 
-					// uniforms are like state machines, makes crate face camera
-					var FaceCamLoc = gl.getUniformLocation(program,'FaceCam');
-					// uniform1i is 1 integer
-					gl.uniform1i(FaceCamLoc,true);
-				 
-					 //var ibuffer = gl.createBuffer();
-					 //gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ibuffer);
-					 //gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint8Array(this.indexOrder),gl.STATIC_DRAW);
-					 //gl.drawElements(gl.TRIANGLES,this.indexOrder.length,gl.UNSIGNED_BYTE,0);
-					 gl.drawArrays(gl.TRIANGLES, 0, this.vertCount);
-					 
-					 // set face camera for all other objects to not face camera
-					 gl.uniform1i(FaceCamLoc,false);
-				}
+								
 			}
 			
 			class Bat extends Enemy
@@ -1970,8 +1688,8 @@
 					this.vertCount = 6;
 					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
 					
-					this.speed = 0.04 * m.gameSpeed;
-					this.velocity[2] = -this.speed * m.gameSpeed;
+					this.speed = 0.055 * m.gameSpeed;
+					this.velocity[2] = -this.speed;
 					this.rot[1] = 0;
 					
 					this.hp = 2;
@@ -1985,8 +1703,8 @@
 					this.animations = [bat, bat2, bat3, bat2];
 					this.redAnimations = [redBat, redBat2, redBat3, redBat2];
 					
-					this.animTimer = 20 / (0.75*m.gameSpeed);
-					this.animNum = 1;
+					this.animTimer = 20 / (0.75*m.gameSpeed);	
+					this.animLength = 20 / (0.75*m.gameSpeed);
 				}
 				
 				Update()
@@ -2013,7 +1731,7 @@
 					this.animTimer--;
 					if(this.animTimer <= 0)
 					{
-						this.animTimer = 20;
+						this.animTimer = this.animLength;
 						this.animNum++;
 						if(this.animNum == this.animations.length)
 						{
@@ -2034,82 +1752,8 @@
 						m.DestroyObject(this.id);
 					}
 					this.Move();							
-				}	
-
-				Animate()
-				{		
-					if(this.isExploding)
-						return;
-						
-					if(!this.isFlashing)
-					{
-						this.MyPicture = this.animations[this.animNum];
-					}
-					else
-					{
-						this.MyPicture = this.redAnimations[this.animNum];
-					}
-															
-					this.MyTexture = gl.createTexture();
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					//We only want to do this once.
-					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
-				}				
-				
-				Render(program)
-				{
-					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
-					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-					var size = 3;          // 2 components per iteration
-					var type = gl.FLOAT;   // the data is 32bit floats
-					var normalize = false; // don't normalize the data
-					
-					//Make sure you change this to 5 for your TEXTURES
-					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
-					var offset = 0;        // start at the beginning of the buffer
-					gl.enableVertexAttribArray(positionAttributeLocation);
-					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
-					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!TEXTURE CHANGE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-					//Now we have to do this for color
-					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
-					//We don't have to bind because we already have the correct buffer bound.
-					size = 2;
-					type = gl.FLOAT;
-					normalize = false;
-					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
-					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
-					gl.enableVertexAttribArray(colorAttributeLocation);
-					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
-							
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					//setup S
-					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
-					//Sets up our T
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-							
-					var tranLoc  = gl.getUniformLocation(program,'u_translation');
-					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
-					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
-					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));
-				 
-					// uniforms are like state machines, makes crate face camera
-					var FaceCamLoc = gl.getUniformLocation(program,'FaceCam');
-					// uniform1i is 1 integer
-					gl.uniform1i(FaceCamLoc,true);
-				 
-					 //var ibuffer = gl.createBuffer();
-					 //gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ibuffer);
-					 //gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint8Array(this.indexOrder),gl.STATIC_DRAW);
-					 //gl.drawElements(gl.TRIANGLES,this.indexOrder.length,gl.UNSIGNED_BYTE,0);
-					 gl.drawArrays(gl.TRIANGLES, 0, this.vertCount);
-					 
-					 // set face camera for all other objects to not face camera
-					 gl.uniform1i(FaceCamLoc,false);
-				}
+				}					
+								
 			}
 			
 			class Skeleton extends Enemy
@@ -2133,14 +1777,14 @@
 					this.vertCount = 6;					
 					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
 					
-					this.speed = 0.02 * m.gameSpeed;
-					this.velocity = [0,0,this.speed * m.gameSpeed]
+					this.speed = 0.032 * m.gameSpeed;
+					this.velocity = [0,0,this.speed]
 					this.rot[0,Math.PI,0];
 					
 					this.hp = 3;
 					
-					this.animTimer = 120 / (0.75*m.gameSpeed);	
-					this.animNum = 1;
+					this.animTimer = 120 / (0.75*m.gameSpeed);
+					this.animLength = 120 / (0.75*m.gameSpeed);
 					
 					this.MyPicture = skeleton;
 					this.MyTexture = gl.createTexture();
@@ -2150,6 +1794,35 @@
 					
 					this.animations = [skeleton, skeleton2, skeleton3];
 					this.redAnimations = [redSkeleton, redSkeleton2, redSkeleton3];
+				}
+				
+				ShootBone()
+				{
+					// offset enemy bullet so it doesn't get destroyed inside the enemy
+					var offsetLoc = [];
+					// shallow copy so offsetLoc doesn't reference enemy loc
+					for(let i = 0; i < this.loc.length; i++)
+					{
+						offsetLoc[i] = this.loc[i];
+						// change only x and z for offset
+						if(i == 0 || i == 2)
+						{
+							// don't change offset with velocity or bone spawns farther on 2x speed
+							// offset bone in direction of travel
+							if(this.velocity[i] > 0)
+							{
+								offsetLoc[i] += 1;				
+							}
+							else if(this.velocity[i] < 0)
+							{
+								offsetLoc[i] += -1;					
+							}
+						}													
+					}								
+					
+					var bullet = m.CreateObject(2, Bone, offsetLoc, this.rot);	
+					bullet.speedMultiplier = 0.1 * m.gameSpeed;
+					document.getElementById("bone_throw").play();		
 				}
 				
 				Update()
@@ -2176,33 +1849,9 @@
 					this.animTimer--;							
 					if(this.animTimer <= 0)
 					{
-						// offset enemy bullet so it doesn't get destroyed inside the enemy
-						var offsetLoc = [];
-						// shallow copy so offsetLoc doesn't reference enemy loc
-						for(let i = 0; i < this.loc.length; i++)
-						{
-							offsetLoc[i] = this.loc[i];
-							// change only x and z for offset
-							if(i == 0 || i == 2)
-							{
-								// don't change offset with velocity or bone spawns farther on 2x speed
-								// offset bone in direction of travel
-								if(this.velocity[i] > 0)
-								{
-									offsetLoc[i] += 1;				
-								}
-								else if(this.velocity[i] < 0)
-								{
-									offsetLoc[i] += -1;					
-								}
-							}													
-						}								
+						this.ShootBone();
 						
-						var bullet = m.CreateObject(2, Bone, offsetLoc, this.rot);	
-						bullet.speedMultiplier = 0.1 * m.gameSpeed;
-						document.getElementById("bone_throw").play();												
-						this.animTimer = 120 / (0.75*m.gameSpeed);
-						
+						this.animTimer = this.animLength;
 						this.animNum++;
 						if(this.animNum == this.animations.length)
 						{
@@ -2224,82 +1873,8 @@
 					}			
 									
 					this.Move();
-				}	
-
-				Animate()
-				{			
-					if(this.isExploding)
-						return;
-						
-					if(!this.isFlashing)
-					{
-						this.MyPicture = this.animations[this.animNum];
-					}
-					else
-					{
-						this.MyPicture = this.redAnimations[this.animNum];
-					}
-					
-					this.MyTexture = gl.createTexture();
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					//We only want to do this once.
-					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
-				}
-				
-				Render(program)
-				{
-					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
-					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-					var size = 3;          // 2 components per iteration
-					var type = gl.FLOAT;   // the data is 32bit floats
-					var normalize = false; // don't normalize the data
-					
-					//Make sure you change this to 5 for your TEXTURES
-					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
-					var offset = 0;        // start at the beginning of the buffer
-					gl.enableVertexAttribArray(positionAttributeLocation);
-					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
-					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!TEXTURE CHANGE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-					//Now we have to do this for color
-					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
-					//We don't have to bind because we already have the correct buffer bound.
-					size = 2;
-					type = gl.FLOAT;
-					normalize = false;
-					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
-					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
-					gl.enableVertexAttribArray(colorAttributeLocation);
-					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
-							
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					//setup S
-					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
-					//Sets up our T
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-							
-					var tranLoc  = gl.getUniformLocation(program,'u_translation');
-					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
-					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
-					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));
-				 
-					// uniforms are like state machines, makes crate face camera
-					var FaceCamLoc = gl.getUniformLocation(program,'FaceCam');
-					// uniform1i is 1 integer
-					gl.uniform1i(FaceCamLoc,true);
-				 
-					 //var ibuffer = gl.createBuffer();
-					 //gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ibuffer);
-					 //gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint8Array(this.indexOrder),gl.STATIC_DRAW);
-					 //gl.drawElements(gl.TRIANGLES,this.indexOrder.length,gl.UNSIGNED_BYTE,0);
-					 gl.drawArrays(gl.TRIANGLES, 0, this.vertCount);
-					 
-					 // set face camera for all other objects to not face camera
-					 gl.uniform1i(FaceCamLoc,false);
-				}
+				}				
+								
 			}					
 			
 			class Candle extends GameObject
@@ -2368,13 +1943,12 @@
 						0, 0.5, 0,  1, 1						
 					];				
 
-					this.resize = 2;
+					this.resizer = 2;
 					this.Resize(2);
 					
-					this.collisionRadius = 0.3 * this.resize;								
+					this.collisionRadius = 0.3 * this.resizer;								
 					this.numBaseVertices = 24;
-					this.numFlameVertices = 9;
-					//this.vertCount = 33;								
+					this.numFlameVertices = 9;						
 					
 					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);						
 					
@@ -2426,17 +2000,7 @@
 					var lightString = ('pointLightPosition' + this.pointLightNum);					
 					//console.log("rendering: " + lightString);
 					
-					var p_lightLoc  = gl.getUniformLocation(program, lightString);					
-										
-					/*let offsetLightLoc = [];
-					for(let i = 0; i < this.loc.length; i++)
-					{
-						// shallow copy
-						offsetLightLoc[i] = this.loc[i];
-					}
-					// offset x of loc array so light is connected with candle
-					offsetLightLoc[0] += 0.5;*/			
-					
+					var p_lightLoc  = gl.getUniformLocation(program, lightString);																								
 					gl.uniform3fv(p_lightLoc, new Float32Array(this.loc));
 															
 					var tranLoc  = gl.getUniformLocation(program,'u_translation');
@@ -2444,16 +2008,7 @@
 					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
 					gl.uniform3fv(thetaLoc, new Float32Array(this.rot));
 					var scaleLoc = gl.getUniformLocation(program,'u_scale');
-					gl.uniform3fv(scaleLoc, new Float32Array(this.scale));	
-
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					//setup S
-					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
-					//Sets up our T
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!					
+					gl.uniform3fv(scaleLoc, new Float32Array(this.scale));												
 					
 					//Position
 					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
@@ -2474,7 +2029,15 @@
 					stride = 5*Float32Array.BYTES_PER_ELEMENT;	
 					offset = 3*Float32Array.BYTES_PER_ELEMENT;	
 					gl.enableVertexAttribArray(colorAttributeLocation);
-					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);																			
+					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);	
+
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//setup S
+					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
+					//Sets up our T
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);										
 
 					var primitiveType = gl.TRIANGLES;
 					offset = 0;					
@@ -2577,14 +2140,15 @@
 				OnCollisionEnter(other)
 				{
 					if(other instanceof Camera)
-					{
-						//m.ResetPlayer = true;						
-						// go to next level
+					{															
 						document.getElementById("gameWin").innerHTML = "You beat level " + m.level + "!";
 						document.getElementById("gameWin").style.marginRight = "26%";
-						m.level++;						
-						m.messageTimer = 200;
+							
+						m.messageTimer = m.messageLength;
 						m.messagePlaying = true;
+						
+						// go to next level
+						m.level++;				
 						m.AdvanceLevel();		
 
 						//console.log("advancing level");
@@ -2610,8 +2174,7 @@
 					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));
 					var scaleLoc = gl.getUniformLocation(program,'u_scale');
 					gl.uniform3fv(scaleLoc, new Float32Array(this.scale));
-					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!TEXTURE CHANGE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+										
 					//Now we have to do this for color
 					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
 					//We don't have to bind because we already have the correct buffer bound.
@@ -2619,7 +2182,7 @@
 					type = gl.FLOAT;
 					normalize = false;
 					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
-					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
+					offset = 3*Float32Array.BYTES_PER_ELEMENT;	//size of the offset
 					gl.enableVertexAttribArray(colorAttributeLocation);
 					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
 							
@@ -2676,7 +2239,7 @@
 					
 					this.name = "Boo";
 					
-					this.velocity = [0,0,this.speed*m.gameSpeed];					
+					this.velocity = [0,0,this.speed];					
 					
 					this.MyPicture = kingBoo;
 					this.MyTexture = gl.createTexture();
@@ -2770,161 +2333,18 @@
 						for(let i = 0; i < this.loc.length; i++)
 						{
 							offsetLoc[i] = this.loc[i];																							
-						}								
-						//offsetLoc[0] += (this.velocity[i] * 50);				
+						}				
+						// lower fireball since boo loc is higher than player
 						offsetLoc[1] -= 0.5;									
 												
 						var bullet = m.CreateObject(2, PurpleFireball, offsetLoc, this.rot);	
 						bullet.speedMultiplier = 0.1 * m.gameSpeed;					
 					}
 					this.rot[1] = 0;
-				}
-
-				Animate()
-				{				
-					if(this.isExploding)
-						return;
-						
-					if(!this.isFlashing)
-					{
-						this.MyPicture = this.animations[this.animNum];
-					}
-					else
-					{
-						this.MyPicture = this.redAnimations[this.animNum];
-					}						
-											
-					this.MyTexture = gl.createTexture();
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					//We only want to do this once.
-					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
 				}						
-				
-				Render(program)
-				{
-					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
-					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-					var size = 3;          // 2 components per iteration
-					var type = gl.FLOAT;   // the data is 32bit floats
-					var normalize = false; // don't normalize the data
-					
-					//Make sure you change this to 5 for your TEXTURES
-					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
-					var offset = 0;        // start at the beginning of the buffer
-					gl.enableVertexAttribArray(positionAttributeLocation);
-					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
-					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!TEXTURE CHANGE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-					//Now we have to do this for color
-					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
-					//We don't have to bind because we already have the correct buffer bound.
-					size = 2;
-					type = gl.FLOAT;
-					normalize = false;
-					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
-					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
-					gl.enableVertexAttribArray(colorAttributeLocation);
-					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
 							
-					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
-					//setup S
-					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
-					//Sets up our T
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);					
-					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-							
-					var tranLoc  = gl.getUniformLocation(program,'u_translation');
-					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
-					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
-					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));
-				 
-					// uniforms are like state machines, makes crate face camera
-					var FaceCamLoc = gl.getUniformLocation(program,'FaceCam');
-					// uniform1i is 1 integer
-					gl.uniform1i(FaceCamLoc,true);
-				 
-					 //var ibuffer = gl.createBuffer();
-					 //gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ibuffer);
-					 //gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint8Array(this.indexOrder),gl.STATIC_DRAW);
-					 //gl.drawElements(gl.TRIANGLES,this.indexOrder.length,gl.UNSIGNED_BYTE,0);
-					 gl.drawArrays(gl.TRIANGLES, 0, this.vertCount);
-					 
-					 // set face camera for all other objects to not face camera
-					 gl.uniform1i(FaceCamLoc,false);
-				}
 			}
-		</script>
-		
-		<script id="textures">
-			// texture stuff
-			function CreateCheckered()
-			{
-				//Actually get our texture;
-				var myPic = [];
-				for(i =0; i < 16; i ++)
-				{
-					for(j =0; j< 16; j ++)
-					{
-						if(i%2 == j%2)
-						{
-							//Push red
-							myPic.push(255,30,30,255);
-						}
-						else
-						{
-							myPic.push(30,255,30,255);
-						}	
-					}
-				}
-				return myPic;
-			}
-			
-			function CreateBrick()
-			{
-				var myPic2 = [];
-				for(i =0; i < 16; i ++)
-				{
-					for(j =0; j< 16; j ++)
-					{
-						if(i == 0 || j ==0)
-						{
-							
-							myPic2.push(0,0,0,255);
-						}
-						else
-						{
-							myPic2.push(255,30,30,255);
-						}		
-					}
-				}
-				return myPic2;
-			}
-		
-			function CreateCrate()
-			{
-				//we want to create a crate with black around the sides
-				//and a black x throug the middle
-				//The rest will be brown.   
-				var myCrate = [];
-				for(i =0; i < 64; i ++)
-				{
-					for(j =0; j< 64; j ++)
-					{
-						if(i ==0 || j == 0 || i == 63 || j ==63 || i == j || 64-j ==i)
-						{
-							myCrate.push(0,0,0,255);
-						}
-						else
-						{
-							myCrate.push(200,128,23,255);
-						}
-					}
-				}
-				return myCrate;
-			}
-		</script>
+		</script>		
 			
 		<script id="main">
 			class main
@@ -2948,15 +2368,11 @@
 					requestAnimationFrame(main.MainLoop);					
 					
 					this.messageTimer = 200;
+					this.messageLength = 200;
 					this.messagePlaying = false;				
 					
-					this.gameSpeed = 1.6; //1.6
-								
-					this.ResetPlayer = false;		
-					this.menuCleared = false;
-					
-					this.levelsPlaced = false;					
-					this.level = 1;																		
+					// 1.6 is regarded as 1x speed since I needed to speed up game to feel good
+					this.gameSpeed = 1.6;																																									
 					
 					var tempLoc = gl.getUniformLocation(this.program,'n');
 					gl.uniform1f(tempLoc,.1);
@@ -3001,9 +2417,7 @@
 						levelXOffset = 200;
 					}
 					
-					//console.log("placing level: " + this.level);
-					
-					//console.log("placing new level");
+					//console.log("placing level: " + this.level);					
 					
 					for(let i = 0; i < level.length; i++)
 					{						
@@ -3036,24 +2450,21 @@
 									}									
 									break;
 								case 3:
-									// create point light
+									// create point light (only if enough variables are used in shader)
 									//this.CreateObject(1, Candle, [2*j,0,2*i], [0,0,0]);	
 									break;
-								case 4:
-									// create boo									
-									this.CreateObject(1, Bat, [levelXOffset+2*j,0,2*i], [0,0,0]);	
-									
+								case 4:									
+									this.CreateObject(1, Bat, [levelXOffset+2*j,0,2*i], [0,0,0]);										
 									break;
-								case 5:
-									// create bat									
+								case 5:									
 									this.CreateObject(1, Boo, [levelXOffset+2*j,0,2*i], [0,0,0]);								
 									break
-								case 6:
-									// create skeleton
+								case 6:									
 									this.CreateObject(1, Skeleton, [levelXOffset+2*j,0,2*i], [0,0,0]);	
 									break;		
 								case 7: 
 									this.CreateObject(1, GoalFlag, [levelXOffset+2*j,-1,2*i], [0,0,0]);	
+									break;
 							}												
 						}
 						
@@ -3061,6 +2472,7 @@
 				}
 				
 				// should generate paths at least 4 tiles wide and ensure the maze is connected
+				// avoid paths longer than 7 tiles wide
 				GenerateMaze()
 				{					
 					var isMazePossible = false;
@@ -3273,28 +2685,14 @@
 				}	
 				
 				DestroyCamera()
-				{
-					for(var id in this.Visual)
-					{
-						if(this.Visual[id] instanceof Camera)
-						{
-							delete this.Visual[id];						
-						}
-					}				
+				{						
 					for(var id in this.Solid)
 					{
 						if(this.Solid[id] instanceof Camera)
 						{
 							delete this.Solid[id];				
 						}
-					}	
-					for(var id in this.Trigger)
-					{
-						if(this.Trigger[id] instanceof Camera)
-						{
-							delete this.Trigger[id];							
-						}
-					}			
+					}					
 				}
 				
 				HandleMessage()
@@ -3303,6 +2701,11 @@
 					{
 						this.messageTimer--;
 					}
+					// could include this to skip the next conditional check
+					/*else
+					{
+						return;
+					}*/
 					
 					if(this.messageTimer <= 0 && !this.gameWon)
 					{
@@ -3311,29 +2714,24 @@
 					}
 				}
 
-				CheckResetPlayer()
-				{					
-					if(this.ResetPlayer)
+				ResetPlayer()
+				{										
+					//console.log("reseting player");
+					
+					this.DestroyCamera();
+					if(this.level == 1)
 					{
-						//console.log("reseting player");
-						
-						this.DestroyCamera();
-						if(this.level == 1)
-						{
-							m.CreateObject(1,Camera,[2,0,2],[0,0,0]);
-						}
-						else if(this.level == 2)
-						{
-							m.CreateObject(1, Camera, [115,0,5], [0,0,0]);
-						}
-						else if(this.level == 3)
-						{
-							m.CreateObject(1, Camera, [215,0,5], [0,0,0]);
-							this.ResetBoss();
-						}
-							
-						this.ResetPlayer = false;
-					}				
+						m.CreateObject(1,Camera,[2,0,2],[0,0,0]);
+					}
+					else if(this.level == 2)
+					{
+						m.CreateObject(1, Camera, [115,0,5], [0,0,0]);
+					}
+					else if(this.level == 3)
+					{
+						m.CreateObject(1, Camera, [215,0,5], [0,0,0]);
+						this.ResetBoss();
+					}											
 				}
 				
 				ResetBoss()
@@ -3343,7 +2741,7 @@
 						if(this.Solid[id] instanceof BossBoo)
 						{
 							this.Solid[id].hp = 15;
-							this.Solid[id].loc = [214,1,15];
+							this.Solid[id].loc = [215,1,15];
 							//console.log("reset hp");
 						}
 					}
@@ -3518,8 +2916,11 @@
 					newElement4.onclick = function()
 					{
 						m.gameStarted = true;
-						document.getElementById("hp").style.visibility = "visible";						
-						requestAnimationFrame(main.MainLoop);						
+						m.ClearMenu();
+						document.getElementById("hp").style.visibility = "visible";	
+						
+						m.PlaceLevels();							
+						requestAnimationFrame(main.MainLoop);			
 					};
 					
 					document.getElementById("container").appendChild(newElement);
@@ -3530,6 +2931,8 @@
 				
 				ClearMenu()
 				{
+					document.getElementById("title").remove();
+										
 					if(this.titleOpen)
 					{												
 						document.getElementById("start").remove();
@@ -3542,8 +2945,7 @@
 						{
 							buttons[i].remove();
 						}						
-					}					
-					document.getElementById("title").remove();
+					}										
 				}
 				
 				PlaceLevels()
@@ -3631,11 +3033,13 @@
 						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
 						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
 						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
 					];
 					
 					this.rows = 30;
 					this.cols = 30;
+					
+					this.level = 1;
 					
 					this.SetBorders(this.Level1);
 					this.PlaceMaze(this.Level1);
@@ -3675,31 +3079,35 @@
 				
 				static MainLoop()
 				{		
-											
+					if(!m.gameStarted)
+					{
+						m.averageTime = 0;	
+						m.loops = 0;
+					}
+					
 					if(m.gameStarted)
-					{				
-						document.getElementById("theme").play();
-																		
-						if(!m.menuCleared)
+					{			
+						if(m.loops == 0)
 						{
-							m.ClearMenu();																			
-							m.menuCleared = true;
-							document.getElementById("hp").style.visibility = "visible";
-						}												
-							
-						if(!m.levelsPlaced)
-							m.PlaceLevels();											
-							
+							m.startTime = performance.now();
+						}						
+						
+						document.getElementById("theme").play();																																			
+						
+						// make background black every flame
 						gl.clearColor(0,0,0,1);
-						gl.clear(gl.COLOR_BUFFER_BIT);	
+						gl.clear(gl.COLOR_BUFFER_BIT);
 							
 						//console.log("game started");
 						m.UpdateAll();
 						m.RenderAll();
-						m.ObjectCleanup();		
-						m.CheckResetPlayer();
+						m.ObjectCleanup();																	
 						m.HandleMessage();						
 						requestAnimationFrame(main.MainLoop);	
+						
+						m.loops++;					
+						m.averageTime = Math.floor((performance.now() - m.startTime)/m.loops);
+						console.log("average loop time: " + m.averageTime + "ms");					
 					}					
 				}
 
@@ -3724,9 +3132,11 @@
 			<div id="title" style="color: black; margin-left: 10%; width: 500px; font-size: 40pt; position: absolute; top: 15%;">Escape the Maze</div>
 			
 			<button id="start" style="color: black; background-color: lightyellow; width: 500px; font-size: 40pt; position: absolute; top: 35%;" 				
-				onclick="m.gameStarted = true; requestAnimationFrame(main.MainLoop);">
+				onclick="m.gameStarted = true; m.ClearMenu(); document.getElementById('hp').style.visibility = 'visible'; 
+				m.PlaceLevels(); requestAnimationFrame(main.MainLoop);">
 				Start
 			</button>					
+			
 			
 			<button id="options" style="color: black; background-color: lightyellow; width: 500px; font-size: 40pt; position: absolute; top: 55%;"
 				onclick="m.OpenOptions();">Options</button>
@@ -3748,8 +3158,7 @@
 		<audio id="fireball" src="audio/fireball.mp3"></audio>
 		<audio id="bone_throw" src="audio/bone_throw.mp3"></audio>
 		<audio id="theme" src="audio/dark_scenario.wav"></audio>
-		<audio id="damage" src="audio/take_damage.mp3"></audio>
-		
+		<audio id="damage" src="audio/take_damage.mp3"></audio>		
 		
 		<SCRIPT>
 			var canvas = document.getElementById("myCanvas");
@@ -3762,7 +3171,7 @@
 			requestAnimationFrame(main.MainLoop);								
 			
 			m.CreateObject(1,Camera,[2,0,2],[0,0,0]);						
-			//m.CreateObject(1,Camera,[210,0,4],[0,0,0]);						
+			//m.CreateObject(1,Camera,[215,0,4],[0,0,0]);				
 			
 			m.CreateObject(1, Candle, [7, -0.7, 35], [0,0,0]);		
 			m.CreateObject(1, Candle, [5, -0.7, 12], [0,0,0]);		

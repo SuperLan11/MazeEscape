@@ -1,0 +1,3198 @@
+<!DOCTYPE HTML>
+<HTML lang="en">
+	<Head>
+		<Title>Escape the Maze</TITLE>
+			
+		<!-- 
+		GLSL is the language used for shaders (GL Shader Language)
+		
+		Attribute - you specify how to pull the data out of the buffers you supply.
+		Buffers - Data loaded onto the GPU (Normally vertex information)
+		
+		Uniforms - global variables (in GLSL) that you set before you run the shader program
+		
+		Textures - Textures are arrays of data you can randomly acces in your shader program.  
+		
+		Varying - are way for a vertex shader to pass data to the fragmentShader.
+		
+		Pascal case for functions
+		Camel case for variables
+		underscores for global or shader stuff
+		-->
+		<script id="2dVertexShader" type="notjs">	
+			// attributes to send to fragment shader
+			attribute vec4 a_position;				
+			attribute vec3 a_color;			
+			varying vec3 v_color;					
+			
+			//A uniform is something consistent for all vertices in a buffer
+			uniform vec3 u_translation;
+			uniform vec3 u_rotation;		
+			uniform vec3 u_scale;
+			
+			uniform vec3 worldLoc;
+			uniform vec3 worldRotation;
+			
+			uniform vec3 cameraLoc;
+			uniform vec3 cameraRotation;
+			
+			uniform float n;
+			uniform float f;
+			uniform float r;
+			uniform float t;					
+			
+			//Use a function to position the object
+			vec4 PositionObject(vec4 pos)
+			{
+				mat4 translateM = mat4(1.0,0.0,0.0,0.0,
+							   0.0,1.0,0.0,0.0,
+							   0.0,0.0,1.0,0.0,
+							   u_translation.x,u_translation.y,u_translation.z,1.0);
+				return translateM*pos;	
+			}
+			
+			vec4 ScaleObject(vec4 pos)
+			{
+				if(length(u_scale) != 0.0)
+				{
+					mat4 scaleM = mat4(
+									u_scale.x,0.0,0.0,0.0,
+									0.0,u_scale.y,0.0,0.0,
+									0.0,0.0,u_scale.z,0.0,
+									0.0,0.0,0.0,1.0
+									);
+					return scaleM * pos;
+				}
+				else
+				{
+					return pos;
+				}
+			}
+			
+			//Use a function to Rotate the object
+			vec4 RotateObject(vec4 pos)
+			{
+				//This is a nice trick
+				vec3 c = cos(u_rotation);
+				vec3 s = sin(u_rotation);
+				v_color = a_color;
+				//Surprise!  we have to go column first when we enter the matrix.
+
+				mat4 rotateX = mat4(1, 0, 0, 0,
+							0, c.x, s.x, 0,
+							0, -s.x, c.x, 0,
+							0, 0, 0, 1);
+							
+
+				mat4 rotateY = mat4(c.y,0.0,-s.y,0.0,
+									0.0,1.0,0.0,0.0,
+									s.y,0.0,c.y,0.0,
+									0.0,0.0,0.0,1.0);
+
+				mat4 rotateZ = mat4(c.z, s.z, 0, 0,
+							-s.z, c.z, 0, 0,
+							0, 0, 1, 0,
+							0, 0, 0, 1);			
+
+				return rotateX * rotateY * rotateZ * pos;
+			}
+			
+			vec4 MoveCamera(vec4 pos)
+			{
+				vec3 cw = cos(cameraRotation);
+				// can multiply control y by -1 later instead of here
+				vec3 sw = sin(cameraRotation);
+
+				// -1.0 is used in third row to invert world for camera to see
+				// cameraLoc z is not affected by scalar
+				// cameraLoc x and y are negative to move world as if camera moved
+				mat4 translateView = mat4(
+							1.0,0.0,0.0,0.0,
+							0.0,1.0,0.0,0.0,
+							0.0,0.0,-1.0,0.0,
+							-1.0*cameraLoc.x,-1.0*cameraLoc.y,cameraLoc.z,1.0
+							);
+							
+				mat4 rotateYView = mat4(
+							cw.y,0.0,-1.0*sw.y,0.0,
+							0.0,1.0,0.0,0.0,
+							sw.y,0.0,cw.y,0.0,
+							0.0,0.0,0.0,1.0
+										);
+										
+				mat4 rotateXView = mat4(
+							1.0,	0.0,		0.0,	0.0,
+							0.0,	cw.x,		sw.x,	0.0,
+							0.0,	-1.0*sw.x, 	cw.x,	0.0,
+							0.0,	0.0,		0.0,	1.0
+										);
+
+				mat4 rotateZView = mat4(
+							cw.z,		sw.z,		0.0,	0.0,
+							-1.0*sw.z, 	cw.z,		0.0,	0.0,
+							0.0,		0.0,		1.0,	0.0,
+							0.0,		0.0,		0.0,	1.0
+										);	
+										
+				return rotateXView*rotateYView*rotateZView*translateView*pos;
+			}
+
+			vec4 ApplyProjection(vec4 pos)
+			{
+
+				mat4 ComplexPerspective = mat4(
+								n/r, 0.0,0.0,0.0,
+								0.0, n/t,0.0,0.0,
+								0.0,0.0,-1.0*(f+n)/(f-n),-1.0,
+								0.0,0.0,-2.0*f*n/(f-n),0.0
+								);
+											
+				mat4 ComplexOrtho = mat4(	
+							1.0/r,0.0,0.0,0.0,
+							0.0,1.0/t,0.0,0.0,	
+							0.0,0.0,1.0,0.0,
+							0.0,0.0,0.0,1.0	
+							);
+								
+				//Choose which projection you want here:  Perspective or Orthographic			
+				return ComplexPerspective*pos;
+			}				
+
+			vec4 LookAt(vec3 F, vec3 U, vec4 pos)
+			{
+				//precision mediump float;
+				vec3 R = cross(F,U);
+				mat4 LookAt = mat4(R.x,R.y,R.z,0.0,
+									U.x,U.y,U.z,0.0,
+									F.x,F.y,F.z,0.0,
+									0.0,0.0,0.0,1.0);
+						
+				return LookAt*pos;
+			}
+			
+			// Lighting
+			// we're modeling the world egocentrially, 0,0,0 is center of object
+			varying vec3 fakenormal;
+			varying vec3 v_surfaceToLight;
+			varying vec3 v_surfaceToView;
+			
+			varying vec3 v_spot_surfaceToLight1;
+			varying vec3 v_spot_surfaceToLight2;
+			varying vec3 v_spot_surfaceToLight3;
+			varying vec3 v_spot_surfaceToLight4;
+			varying vec3 v_spot_surfaceToLight5;
+			varying vec3 v_spot_surfaceToLight6;
+			varying vec3 v_spot_surfaceToLight7;
+			varying vec3 v_spot_surfaceToLight8;
+			varying vec3 v_spot_surfaceToLight9;
+			varying vec3 v_spot_surfaceToLight10;
+		
+			uniform vec3 spotLightPosition;
+			
+			uniform vec3 pointLightPosition1;
+			uniform vec3 pointLightPosition2;
+			uniform vec3 pointLightPosition3;
+			uniform vec3 pointLightPosition4;
+			uniform vec3 pointLightPosition5;
+			uniform vec3 pointLightPosition6;
+			uniform vec3 pointLightPosition7;
+			uniform vec3 pointLightPosition8;
+			uniform vec3 pointLightPosition9;
+			uniform vec3 pointLightPosition10;
+			
+			// for textures
+			attribute vec2 texcord;
+			varying vec2 v_texcord;	
+			
+			uniform bool FaceCam;
+	
+			//Bad guy spotlight location
+			uniform vec3 BadGuyLoc;			
+			
+			void main()
+			{								
+				gl_PointSize = 10.0;
+				
+				//v_color = a_color;							
+				
+				// change normal depending on if dealing with camera or ground plane
+				if(length(a_position) < 5.0)
+				{
+					//fakenormal = vec3(a_position);
+					// rotate object to get fake normal, makes object look spherical because of radius based light
+					fakenormal = RotateObject(a_position).xyz;				
+				}
+				else
+				{
+					fakenormal = vec3(0.0, 1.0, 0.0);
+				}
+				
+				vec4 worldSpace = vec4(0.0,0.0,0.0,1.0);
+				if(FaceCam)
+				{
+					// get forward vector and invert world z
+					vec3 F = normalize(vec3(cameraLoc.x, cameraLoc.y, cameraLoc.z) - u_translation);
+					// up vector is always 0, 1, 0
+					vec3 U = vec3(0.0,1.0,0.0);
+					worldSpace = PositionObject(LookAt(F, U, a_position));
+				}
+				else
+				{
+					worldSpace = PositionObject(RotateObject(a_position));
+				}													
+																	
+				v_texcord = texcord;
+				
+				// v_surfaceToLight is the position of the point? light source
+				v_surfaceToLight = spotLightPosition - worldSpace.xyz;				
+				v_surfaceToView = cameraLoc - worldSpace.xyz;
+				
+				// v_spot_surfaceToLight is the position of the point light source												
+				v_spot_surfaceToLight1 = pointLightPosition1 - worldSpace.xyz;
+				v_spot_surfaceToLight2 = pointLightPosition2 - worldSpace.xyz;
+				v_spot_surfaceToLight3 = pointLightPosition3 - worldSpace.xyz;
+				v_spot_surfaceToLight4 = pointLightPosition4 - worldSpace.xyz;
+				v_spot_surfaceToLight5 = pointLightPosition5 - worldSpace.xyz;
+				v_spot_surfaceToLight6 = pointLightPosition6 - worldSpace.xyz;
+				v_spot_surfaceToLight7 = pointLightPosition7 - worldSpace.xyz;
+				v_spot_surfaceToLight8 = pointLightPosition8 - worldSpace.xyz;
+				v_spot_surfaceToLight9 = pointLightPosition9 - worldSpace.xyz;
+				v_spot_surfaceToLight10 = pointLightPosition10 - worldSpace.xyz;
+								
+				vec4 cameraSpace = MoveCamera(worldSpace);
+				gl_Position = ApplyProjection(cameraSpace);
+			}				
+		</SCRIPT>	
+				
+		
+		<script id="2dFragmentShader" type="notjs">
+			//Fragment shaders do not have precision so we have to set it.
+			precision mediump float;
+			
+			varying vec3 v_color;
+			varying vec3 fakenormal;
+			varying vec3 v_surfaceToLight;
+			varying vec3 v_surfaceToView;
+			
+			varying vec3 v_spot_surfaceToLight1;
+			varying vec3 v_spot_surfaceToLight2;
+			varying vec3 v_spot_surfaceToLight3;
+			varying vec3 v_spot_surfaceToLight4;
+			varying vec3 v_spot_surfaceToLight5;
+			varying vec3 v_spot_surfaceToLight6;
+			varying vec3 v_spot_surfaceToLight7;
+			varying vec3 v_spot_surfaceToLight8;
+			varying vec3 v_spot_surfaceToLight9;
+			varying vec3 v_spot_surfaceToLight10;
+			
+			// for textures
+			varying vec2 v_texcord;
+			uniform sampler2D sampler;
+			
+			void main()
+			{
+				float ambient = 0.6;			
+				
+				// last normalize is distance source direction
+				// dot product gives similar directedness, d_light always points in same direction
+				float d_light = dot(normalize(fakenormal), 0.9 * normalize(vec3(0.0, 0.0, 1.0)));
+				if(d_light < 0.0)
+				{
+					d_light = 0.0;		
+				}
+				// same as d_light but position changes the way light strikes you. they also have falloff
+				// 2.0 is scalar, dividing by length of surfaceToLight normalizes it
+				float spot_light = dot(normalize(fakenormal), normalize(v_surfaceToLight)*2.0/length(v_surfaceToLight));
+				if(spot_light < 0.0)
+				{
+					spot_light = 0.0;
+				}
+				
+				float p_light1_power = 0.0;
+				float p_light2_power = 0.0;
+				float p_light3_power = 0.0;
+				float p_light4_power = 0.0;
+				float p_light5_power = 0.0;
+				float p_light6_power = 0.0;
+				float p_light7_power = 0.0;
+				float p_light8_power = 0.0;
+				float p_light9_power = 0.0;
+				float p_light10_power = 0.0;
+				// vec3 is position of spotlight source, changes it changes the scale
+				float p_light1 = dot(normalize(v_spot_surfaceToLight1), vec3(0, 3, 0)); 
+				float p_light2 = dot(normalize(v_spot_surfaceToLight2), vec3(0, 3, 0)); 
+				float p_light3 = dot(normalize(v_spot_surfaceToLight3), vec3(0, 3, 0)); 
+				float p_light4 = dot(normalize(v_spot_surfaceToLight4), vec3(0, 3, 0)); 
+				float p_light5 = dot(normalize(v_spot_surfaceToLight5), vec3(0, 3, 0)); 
+				float p_light6 = dot(normalize(v_spot_surfaceToLight6), vec3(0, 3, 0)); 
+				float p_light7 = dot(normalize(v_spot_surfaceToLight7), vec3(0, 3, 0)); 
+				float p_light8 = dot(normalize(v_spot_surfaceToLight8), vec3(0, 3, 0)); 
+				float p_light9 = dot(normalize(v_spot_surfaceToLight9), vec3(0, 3, 0)); 
+				float p_light10 = dot(normalize(v_spot_surfaceToLight10), vec3(0, 3, 0)); 
+				
+				// the lower the value here, the wider the light cone is
+				if(p_light1 > 0.98)
+				{
+					p_light1_power = dot(normalize(fakenormal), normalize(v_spot_surfaceToLight1));
+					if(p_light1 < 0.0)
+					{
+						p_light1 = 0.0;
+					}
+				}
+				
+				// the lower the value here, the wider the light cone is
+				if(p_light2 > 0.98)
+				{
+					p_light2_power = dot(normalize(fakenormal), normalize(v_spot_surfaceToLight2));
+					if(p_light2 < 0.0)
+					{
+						p_light2 = 0.0;
+					}
+				}
+				
+				// the lower the value here, the wider the light cone is
+				if(p_light3 > 0.98)
+				{
+					p_light3_power = dot(normalize(fakenormal), normalize(v_spot_surfaceToLight3));
+					if(p_light3 < 0.0)
+					{
+						p_light3 = 0.0;
+					}
+				}
+				
+				// the lower the value here, the wider the light cone is
+				if(p_light4 > 0.98)
+				{
+					p_light4_power = dot(normalize(fakenormal), normalize(v_spot_surfaceToLight4));
+					if(p_light4 < 0.0)
+					{
+						p_light4 = 0.0;
+					}
+				}
+				
+				// the lower the value here, the wider the light cone is
+				if(p_light5 > 0.98)
+				{
+					p_light5_power = dot(normalize(fakenormal), normalize(v_spot_surfaceToLight5));
+					if(p_light5 < 0.0)
+					{
+						p_light5 = 0.0;
+					}
+				}
+				
+				if(p_light6 > 0.98)
+				{
+					p_light6_power = dot(normalize(fakenormal), normalize(v_spot_surfaceToLight6));
+					if(p_light6 < 0.0)
+					{
+						p_light6 = 0.0;
+					}
+				}
+				
+				if(p_light7 > 0.98)
+				{
+					p_light5_power = dot(normalize(fakenormal), normalize(v_spot_surfaceToLight7));
+					if(p_light7 < 0.0)
+					{
+						p_light7 = 0.0;
+					}
+				}
+				
+				if(p_light8 > 0.98)
+				{
+					p_light8_power = dot(normalize(fakenormal), normalize(v_spot_surfaceToLight8));
+					if(p_light8 < 0.0)
+					{
+						p_light8 = 0.0;
+					}
+				}
+				
+				if(p_light9 > 0.98)
+				{
+					p_light9_power = dot(normalize(fakenormal), normalize(v_spot_surfaceToLight9));
+					if(p_light9 < 0.0)
+					{
+						p_light9 = 0.0;
+					}
+				}
+				
+				if(p_light10 > 0.98)
+				{
+					p_light10_power = dot(normalize(fakenormal), normalize(v_spot_surfaceToLight10));
+					if(p_light10 < 0.0)
+					{
+						p_light10 = 0.0;
+					}
+				}
+				
+				/*vec3 halfVector = normalize(normalize(v_surfaceToView) + normalize(v_surfaceToLight));			
+				float specularityP = 0.0;
+				if(p_light1 > 0.2)
+				{
+					specularityP = pow(dot(normalize(fakenormal), halfVector), 0.01);
+					if(specularityP < 0.0)
+					{
+						specularityP = 0.0;
+					}
+				}*/
+				// to change the light color, make colors additive to object color, not multiplicative							
+				
+				// passing frag color gives 100% ambient light*/
+				//gl_FragColor = vec4(v_color*(ambient + d_light + p_light1_power + p_light2_power + p_light3_power + p_light4_power + p_light5_power + spot_light), 1);
+				
+				
+				// v_texcord is u v coordinates sent in with attributes
+				vec4 tempColor = texture2D(sampler,v_texcord);
+				// if alpha is less than 100%, discard the pixel
+				if(tempColor.w < 1.0)
+				{
+					discard;
+				}
+								
+				float pointLightSum = (p_light1_power + p_light2_power + p_light3_power + p_light4_power + p_light5_power
+					+ p_light6_power + p_light7_power + p_light8_power + p_light9_power + p_light10_power);
+				
+				float zSum = tempColor.z * (ambient + pointLightSum + d_light + spot_light);
+				float ySum = tempColor.y * (ambient + pointLightSum + d_light + spot_light);
+				float xSum = tempColor.x * (ambient + pointLightSum + d_light + spot_light);
+				// otherwise set the frag color, xyz are reversed because image converted uses gbr
+				//gl_FragColor = vec4(tempColor.z,tempColor.y,tempColor.x,1);
+				gl_FragColor = vec4(zSum, ySum, xSum, 1);
+			}									
+		</script>		
+		
+		<script id="WebGL_Interface">
+			class WebGL_Interface
+			{
+				constructor()
+				{
+					this.vertexShaderSource = document.getElementById("2dVertexShader").text;
+					this.fragmentShaderSource = document.getElementById("2dFragmentShader").text;
+					this.vertexShader = this.createShader(gl.VERTEX_SHADER, this.vertexShaderSource);
+					this.fragmenShader = this.createShader(gl.FRAGMENT_SHADER, this.fragmentShaderSource);
+					//Link to program
+					this.program = this.createProgram(this.vertexShader,this.fragmenShader);
+					//setup our viewport
+					gl.viewport(0,0, gl.canvas.width, gl.canvas.height);
+					//set clear colors
+					gl.clearColor(1,1,1,1);
+					gl.clear(gl.COLOR_BUFFER_BIT);							
+					
+					//We will need this for now!
+					gl.enable(gl.DEPTH_TEST);
+					
+					gl.useProgram(this.program);
+				}
+				
+				createShader(type,source)
+				{
+					var shader = gl.createShader(type);
+					gl.shaderSource(shader,source);
+					gl.compileShader(shader);
+					var success = gl.getShaderParameter(shader,gl.COMPILE_STATUS);
+					if(success)
+					{
+						return shader;
+					}
+					//Else it didn't work
+					console.error(gl.getShaderInfoLog(shader));
+					gl.deleteShader(shader);
+				}
+				
+				createProgram(vs,fs)
+				{
+					var program = gl.createProgram();
+					gl.attachShader(program, vs);
+					gl.attachShader(program, fs);
+					gl.linkProgram(program);
+					var success = gl.getProgramParameter(program,gl.LINK_STATUS);
+					if(success)
+					{
+						return program;
+					}
+					console.error(gl.getProgramInfoLog(program));
+					gl.deleteProgram(program);	
+				}						
+			}		
+		</script>		
+		
+		<script src="textures.js"></script>
+		
+		<script id="GameObjects">
+			class Transform
+			{
+			
+				constructor()
+				{
+					this.forward = [0,0,1];
+					this.right = [1,0,0];
+					this.up = [0,1,0];
+				}
+
+				doRotations(RotAngles)
+				{
+					this.xRot = [
+								[1,0,0,0],
+								[0,Math.cos(RotAngles[0]),-1*Math.sin(RotAngles[0]),0],
+								[0,Math.sin(RotAngles[0]),Math.cos(RotAngles[0]),0],
+								[0,0,0,1]
+							];		
+					this.yRot = [
+							[Math.cos(RotAngles[1]),0,Math.sin(RotAngles[1]),0],
+							[0,1,0,0],
+							[-1*Math.sin(RotAngles[1]),0,Math.cos(RotAngles[1]),0],
+							[0,0,0,1]	
+							];
+					this.zRot = [
+								[Math.cos(RotAngles[2]),-1*Math.sin(RotAngles[2]),0,0],
+								[Math.sin(RotAngles[2]),Math.cos(RotAngles[2]),0,0],
+								[0,0,1,0],
+								[0,0,0,1]
+							]
+					//this.forward = this.crossMultiply(this.xRot,[1,0,0,0]);		
+					this.forward = this.crossMultiply(this.zRot,this.crossMultiply(this.yRot,this.crossMultiply(this.xRot,[0,0,1,0])));
+					this.right = this.crossMultiply(this.zRot,this.crossMultiply(this.yRot,this.crossMultiply(this.xRot,[1,0,0,0])));
+					this.up = this.crossMultiply(this.zRot,this.crossMultiply(this.yRot,this.crossMultiply(this.xRot,[0,1,0,0])));
+				}	
+				
+				crossMultiply(M,V)
+				{
+				//console.log(M[0][3]);
+				//console.log(V[3]);
+				var temp = [
+							M[0][0]*V[0]+M[0][1]*V[1]+M[0][2] * V[2]+ M[0][3]*V[3],
+							M[1][0]*V[0]+M[1][1]*V[1]+M[1][2] * V[2]+ M[1][3]*V[3],
+							M[2][0]*V[0]+M[2][1]*V[1]+M[2][2] * V[2]+ M[2][3]*V[3],
+							M[3][0]*V[0]+M[3][1]*V[1]+M[3][2] * V[2]+ M[3][3]*V[3]
+							]
+				//console.log(temp);
+					return temp;
+				}			
+			}
+				
+			class GameObject
+			{
+				
+				constructor() 
+				{
+					this.loc = [0,0,0];
+					this.rot = [0,0,0];
+					this.scale = [0,0,0];
+					this.isTrigger = false;					
+					this.velocity = [0,0,0];
+					this.angVelocity = [0,0,0];
+					this.name = "default";
+					this.id = 0;
+					this.prefab;
+					this.transform = new Transform();
+				}
+				
+				// abstract functions, like the C++ virtual void function = 0;
+				Update(program)
+				{
+					console.error(this.name +" update() is NOT IMPLEMENTED!");
+				}
+				
+				Render(program)
+				{
+					console.error(this.name + " render() is NOT IMPLEMENTED!");
+				}
+				
+				OnTriggerEnter(other)
+				{
+					
+				}
+				
+				OnCollisionEnter(other)
+				{
+					
+				}	
+				
+				Move()
+				{			
+					//console.log("moving something");
+					
+					var tempP = [0,0,0];
+					for(var i = 0; i < 3; i++)
+					{
+						tempP[i] += this.loc[i];
+						tempP[i] += this.velocity[i];
+						this.rot[i] += this.angVelocity[i];			
+					}									
+							
+					var spaceOpen = true;					
+							
+					for(var solidKey in m.Solid)
+					{
+						if(m.Solid[solidKey] == this)
+						{
+							continue;
+						}										
+																																																				
+						// temporarily change this.loc to check collision
+						for(let i = 0; i < this.loc.length; i++)
+						{							
+							this.loc[i] += this.velocity[i];
+						}						
+						
+						if(m.CheckCollision(this, this.loc, m.Solid[solidKey], m.Solid[solidKey].loc))
+						{																																				
+							if(!this.isTrigger)
+							{											
+								this.OnCollisionEnter(m.Solid[solidKey]);
+
+								m.Solid[solidKey].OnCollisionEnter(this);	
+								
+								spaceOpen = false;												
+							}
+							else
+							{
+								this.OnTriggerEnter(m.Solid[solidKey]);
+								
+								m.Solid[solidKey].OnTriggerEnter(this);						
+							}							
+						}
+												
+						// change this.loc to normal
+						for(let i = 0; i < this.loc.length; i++)
+						{
+							this.loc[i] -= this.velocity[i];
+						}													
+					}		
+															
+					if(spaceOpen)
+					{						
+						this.loc = tempP;							
+					}																	
+					
+					// What if a trigger collides with another trigger?
+					for(var triggerKey in m.Trigger)
+					{
+						if(m.CheckCollision(this, this.loc, m.Trigger[triggerKey], m.Trigger[triggerKey].loc))
+						{
+							this.OnTriggerEnter(m.Trigger[triggerKey]);
+							
+							m.Trigger[triggerKey].OnCollisionEnter(this);
+						}
+					}
+				}
+
+				Resize(multiplier)
+				{
+					for(let i = 0; i < this.vertices.length; i++)
+					{
+						if(i % 5 == 0 || i % 5 == 1 || i % 5 == 2)
+						{
+							this.vertices[i] *= multiplier;
+						}
+					}
+				}				
+				
+			}							
+								
+			class Camera extends GameObject
+			{				
+				
+				constructor()
+				{
+					super();
+					
+					this.hp = 5;
+					
+					var tempLoc = gl.getUniformLocation(m.program,'n');		
+					var nearVal = gl.getUniform(m.program, tempLoc);																
+					
+					this.collisionRadius = Math.sqrt(2*(nearVal**2));	
+
+					this.walkSpeed = 0.05;
+					this.rotateSpeed = 0.02;
+					this.strafeSpeed = 0.05;
+				}
+				
+				Update()
+				{					
+					//console.log("this.loc: " + this.loc);
+					
+					this.angVelocity = [0,0,0];
+					this.velocity = [0,0,0];
+					// need to call this to update this.transform
+					this.transform.doRotations(this.rot);
+										
+					if(m.TestKey("A"))
+					{						
+						this.angVelocity[1] = -this.rotateSpeed * m.gameSpeed;
+					}
+					if(m.TestKey("D"))
+					{						
+						this.angVelocity[1] = this.rotateSpeed * m.gameSpeed;
+					}	
+					if(m.TestKey("W"))
+					{								
+						for(let i = 0; i < 3; i++)
+						{
+							this.velocity[i] = this.transform.forward[i] * this.walkSpeed * m.gameSpeed;
+						}
+					}
+					if(m.TestKey("S"))
+					{						
+						for(let i = 0; i < 3; i++)
+						{
+							this.velocity[i] = this.transform.forward[i] * -this.walkSpeed * m.gameSpeed;
+						}
+					}		
+
+					if(m.TestKey("Z"))
+					{						
+						for(let i = 0; i < 3; i++)
+						{
+							this.velocity[i] = this.transform.right[i] * -this.strafeSpeed * m.gameSpeed;
+						}
+					}		
+
+					if(m.TestKey("X"))
+					{						
+						for(let i = 0; i < 3; i++)
+						{
+							this.velocity[i] = this.transform.right[i] * this.strafeSpeed * m.gameSpeed;
+						}
+					}					
+
+
+					// shoot a bullet if space pressed
+					if(" " in m.Keys && m.Keys[" "])
+					{
+						this.ShootFireball();
+						// disable key immediately after pressing space so bullet only fires on keydown
+						m.Keys[" "] = false;											
+					}
+					
+					this.Move();														
+				}		
+				
+				ShootFireball()
+				{
+					// offset z for bullet so it spawns in front of player
+					var offsetLoc = [];
+					// shallow copy so offsetLoc doesn't reference Camera loc
+					for(let i = 0; i < this.loc.length; i++)
+					{
+						offsetLoc[i] = this.loc[i];
+						// change only x and z for offset
+						if(i == 0 || i == 2)
+						{
+							offsetLoc[i] += (this.transform.forward[i] * 1);				
+						}													
+					}												
+										
+					m.CreateObject(2, Fireball, offsetLoc, this.rot);
+					document.getElementById("fireball").play();
+				}	
+				
+				UpdateHpBar()
+				{		
+					var hpBar = document.getElementById("hp");
+					hpBar.innerHTML = "";					
+					for(let i = 0; i < this.hp; i++)
+					{						
+						hpBar.innerHTML += "♥ ";					
+					}					
+				}
+
+				OnCollisionEnter(other)
+				{
+					if(other instanceof Enemy && !other.isExploding)
+					{
+						this.hp--;
+						this.UpdateHpBar();
+						document.getElementById("damage").play();
+						//console.log("took damage");
+					}		
+					else if(other instanceof PurpleFireball)
+					{
+						other.doDestroy = true;
+						this.hp--;
+					}
+					
+					if(this.hp <= 0)
+					{												
+						m.ResetPlayer();
+						this.hp = 5;						
+						this.UpdateHpBar();						
+					}									
+				}
+
+				OnTriggerEnter(other)			
+				{
+					if(other instanceof Bone || other instanceof PurpleFireball)
+					{
+						this.hp--;	
+						document.getElementById("damage").play();
+						other.doDestroy = true;
+						this.UpdateHpBar();
+						//console.log("took damage");	
+					}
+					
+					if(this.hp <= 0)
+					{						
+						m.ResetPlayer();
+						this.hp = 5;						
+						this.UpdateHpBar();						
+					}
+					
+					//console.log("cam hp: " + this.hp);
+				}								
+				
+				Render(program)
+				{
+					// don't need to show camera object, just set its position and world position
+					var camLoc  = gl.getUniformLocation(program,'cameraLoc');
+					gl.uniform3fv(camLoc,new Float32Array(this.loc));
+					var worldLoc = gl.getUniformLocation(program,'cameraRotation');
+					gl.uniform3fv(worldLoc,new Float32Array(this.rot));
+				}	
+				
+			}			
+			
+			class Projectile extends GameObject
+			{
+			
+				constructor()
+				{
+					super();												
+
+					this.isTrigger = true;
+					
+					this.buffer = gl.createBuffer();
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+					
+					this.vertices = [
+						-0.6, -0.6, -0.6,  0, 0,
+						0.6, -0.6, -0.6,  -1, 0,											
+						0.6, 0.6, -0.6,  -1, -1,
+						
+						0.6, 0.6, -0.6,  -1, -1,
+						-0.6, 0.6, -0.6,  0, -1,
+						-0.6, -0.6, -0.6,  0, 0
+					];
+					
+					this.vertCount = 6;
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);																						
+				}
+				
+				OnTriggerEnter(other)
+				{
+					if(other instanceof WallCube)
+					{
+						this.doDestroy = true;
+					}
+					else if(other instanceof Enemy && !(other instanceof BossBoo))
+					{						
+						this.doDestroy = true;				
+					}
+					else if(other instanceof Camera)
+					{
+						this.doDestroy = true;				
+					}
+				}
+				
+				Update()
+				{
+					this.transform.doRotations(this.rot);
+					var direction = this.transform.forward;				
+					
+					// move bullet forward relative to where it is facing		
+					for(let i = 0; i < 3; i++)
+					{
+						this.velocity[i] = direction[i] * this.speedMultiplier * m.gameSpeed;				
+					}					
+					
+					this.Move();													
+				}
+				
+				Render(program)
+				{
+					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+					var size = 3;          // 2 components per iteration
+					var type = gl.FLOAT;   // the data is 32bit floats
+					var normalize = false; // don't normalize the data
+					
+					//Make sure you change this to 5 for your TEXTURES
+					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
+					var offset = 0;        // start at the beginning of the buffer
+					gl.enableVertexAttribArray(positionAttributeLocation);
+					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
+										
+					//Now we have to do this for color
+					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
+					//We don't have to bind because we already have the correct buffer bound.
+					size = 2;
+					type = gl.FLOAT;
+					normalize = false;
+					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
+					offset = 3*Float32Array.BYTES_PER_ELEMENT;	//size of the offset
+					gl.enableVertexAttribArray(colorAttributeLocation);
+					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
+							
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//setup S
+					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
+					//Sets up our T
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);										
+							
+					var tranLoc  = gl.getUniformLocation(program,'u_translation');
+					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
+					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
+					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));				 				
+				 					 
+					gl.drawArrays(gl.TRIANGLES, 0, this.vertCount);					 
+				}
+							
+			}
+			
+			class Fireball extends Projectile
+			{
+				
+				constructor()
+				{
+					super();
+					
+					this.collisionRadius = 0.4;									
+					this.speedMultiplier = 0.1 * m.gameSpeed;									
+										
+					this.MyPicture = fireball;				
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,64,64,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+				}										
+								
+			}			
+			
+			class PurpleFireball extends Projectile
+			{
+				
+				constructor()
+				{
+					super();
+					
+					this.collisionRadius = 0.9;					
+					this.speedMultiplier = 0.1 * m.gameSpeed;					
+										
+					this.MyPicture = purpleFireball;											
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,64,64,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+				}											
+				
+			}		
+
+			class Bone extends Projectile
+			{
+				
+				constructor()
+				{
+					super();
+					
+					this.collisionRadius = 0.6;														
+					this.speedMultiplier = 0.1 * m.gameSpeed;					
+					
+					this.MyPicture = bone;
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,64,64,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+				}												
+				
+			}						
+			
+			class Ground extends GameObject
+			{
+			
+				constructor()
+				{
+					super();
+					this.buffer = gl.createBuffer();					
+					
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+					
+					//!!!!!!!!!!!!!TEXTURE CHANGE !!!!!!!!!!!
+					this.picture = groundTexture;
+					//console.log("made ground");
+					
+					this.vertices =
+					[//  X     Y  Z     s t
+						-1000,0,-1000,  0,0,
+						1000,0, -1000,  200,0,
+						-1000,0,1000,   0,200,
+						1000, 0,1000,   200,200
+					];
+					// s t mean u and v and are pixel coordinates of picture
+					
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//We only want to do this once.
+					//void gl.texImage2D(target, level, internalformat, width, height, border, format, 
+					//type, ArrayBufferView? pixels);
+					// 16 16 0 is height and width of this.picture, only do this once or game is too slow
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.picture));
+				
+					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);					
+				}
+				
+				Update()
+				{
+					//Do Nothing
+				}
+				
+				Render(program)
+				{
+					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+					var size = 3;          // 2 components per iteration
+					var type = gl.FLOAT;   // the data is 32bit floats
+					var normalize = false; // don't normalize the data
+					
+					//MAKE SURE YOU CHANGE THIS TO 5 FOR TEXTURES
+					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
+					var offset = 0;        // start at the beginning of the buffer
+					gl.enableVertexAttribArray(positionAttributeLocation);
+					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
+														
+					//Now we have to do this for color
+					var TexAttributeLocation = gl.getAttribLocation(program,"texcord");
+					//We don't have to bind because we already have the correct buffer bound.
+					size = 2;
+					type = gl.FLOAT;
+					normalize = false;
+					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
+					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
+					gl.enableVertexAttribArray(TexAttributeLocation);
+					gl.vertexAttribPointer(TexAttributeLocation, size, type, normalize, stride, offset);
+							
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//setup S
+					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
+					//Sets up our T, sets what happens when going over the texture coordinates
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);								
+					
+					var tranLoc  = gl.getUniformLocation(program,'u_translation');
+					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
+					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
+					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));				 
+					
+					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+				}
+				
+			}
+			
+			class WallCube extends GameObject
+			{
+				constructor()
+				{
+					super();			
+					
+					this.isTrigger = false;
+					this.buffer = gl.createBuffer();					
+
+					this.collisionRadius = 1.4;
+					this.sideLength = 2.0;
+					
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+					
+					this.isCube = true;														 											
+					
+					this.vertCount = 24;																							
+				}
+				
+				Update()
+				{
+					// wall does not move
+				}	
+
+				Render(program)
+				{
+					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+					var size = 3;          // 2 components per iteration
+					var type = gl.FLOAT;   // the data is 32bit floats
+					var normalize = false; // don't normalize the data
+					
+					//Make sure you change this to 5 for your TEXTURES
+					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
+					var offset = 0;        // start at the beginning of the buffer
+					gl.enableVertexAttribArray(positionAttributeLocation);
+					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
+					
+					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!TEXTURE CHANGE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+					//Now we have to do this for color
+					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
+					//We don't have to bind because we already have the correct buffer bound.
+					size = 2;
+					type = gl.FLOAT;
+					normalize = false;
+					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
+					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
+					gl.enableVertexAttribArray(colorAttributeLocation);
+					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
+							
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//setup S
+					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.MIRRORED_REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
+					//Sets up our T
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.MIRRORED_REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);					
+					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+							
+					var tranLoc  = gl.getUniformLocation(program,'u_translation');
+					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
+					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
+					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));
+				 
+					//var ibuffer = gl.createBuffer();
+					//gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ibuffer);
+					//gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint8Array(this.indexOrder),gl.STATIC_DRAW);
+					//gl.drawElements(gl.TRIANGLES,this.indexOrder.length,gl.UNSIGNED_BYTE,0);
+					gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.vertCount);
+				}				
+			}
+			
+			class WallCube1 extends WallCube
+			{
+				constructor()
+				{					
+					super();
+					
+					this.vertices =
+					[
+						//X, Y,  Z,  U,  V,
+						
+						// front wall of cube
+						-1, -1, -1,  0, 0,
+						1, -1, -1,  1, 0,
+						1, 1, -1,  1, 1,
+						
+						1, 1, -1,  1, 1,
+						-1, 1, -1,  0, 1,
+						-1, -1, -1,  0, 0,						
+						
+						// left wall of cube
+						-1, -1, -1,  0, 0,
+						-1, -1, 1,  -1, 0,
+						-1, 1, 1,  -1, -1,
+						
+						-1, 1, 1,  -1, -1,
+						-1, 1, -1,  0, -1,
+						-1, -1, -1,  0, 0,
+						
+						// right wall of cube
+						1, -1, -1,  0, 0,
+						1, -1, 1,  -1, 0,
+						1, 1, 1,  -1, -1,
+						
+						1, 1, 1,  -1, -1,
+						1, 1, -1,  0, -1,
+						1, -1, -1,  0, 0,
+						
+						// back wall of cube
+						-1, -1, 1,  0, 0,
+						1, -1, 1,  1, 0,
+						1, 1, 1,  1, 1,
+						
+						1, 1, 1,  1, 1,
+						-1, 1, 1,  0, 1,
+						-1, -1, 1,  0, 0						
+					];																					
+										
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
+										
+					this.MyPicture = wallTexture1;				
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,256,256,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+				}
+								
+			}
+			
+			class WallCube2 extends WallCube
+			{
+			
+				constructor()
+				{					
+					super();
+					
+					this.vertices =
+					[
+						//X, Y,  Z,  U,  V,
+						
+						// front wall of cube
+						-1, -1, -1,  0, 0,
+						1, -1, -1,  1, 0,
+						1, 1, -1,  1, 1,
+						
+						1, 1, -1,  1, 1,
+						-1, 1, -1,  0, 1,
+						-1, -1, -1,  0, 0,						
+						
+						// left wall of cube
+						-1, -1, -1,  0, 0,
+						-1, -1, 1,  1, 0,
+						-1, 1, 1,  1, 1,
+						
+						-1, 1, 1,  0, 0,
+						-1, 1, -1,  1, 0,
+						-1, -1, -1,  1, 1,
+						
+						// right wall of cube
+						1, -1, -1,  0, 0,
+						1, -1, 1,  1, 0,
+						1, 1, 1,  1, 1,
+						
+						1, 1, 1,  0, 0,
+						1, 1, -1,  1, 0,
+						1, -1, -1,  1, 1,
+						
+						// back wall of cube
+						-1, -1, 1,  0, 0,
+						1, -1, 1,  1, 0,
+						1, 1, 1,  1, 1,
+						
+						1, 1, 1,  1, 1,
+						-1, 1, 1,  0, 1,
+						-1, -1, 1,  0, 0						
+					];																			
+										
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
+					
+					this.MyPicture = wallTexture2;
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+				}
+				
+			}	
+
+			class Enemy extends GameObject
+			{
+				constructor()
+				{
+					super();					
+					this.isTrigger = false;
+					this.buffer = gl.createBuffer();
+																
+					this.collisionRadius = 0.5;																																									 																																
+				
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);					
+					
+					this.isExploding = false;
+					this.explosionTimer = 50 / (0.75*m.gameSpeed);
+					
+					this.isFlashing = false;
+					this.flashTimer = 15/m.gameSpeed;
+					this.flashLength = 15/m.gameSpeed;
+					
+					this.animNum = 1;					
+				}
+				
+				Update()
+				{
+					// wip
+				}					
+				
+				FlashRed()
+				{																		
+					this.MyPicture = this.redAnimations[this.animNum]
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);					
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));													
+					
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//setup S
+					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
+					//Sets up our T
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);			
+				}				 
+
+				AboutToHitObject()
+				{
+					var offsetLoc = [];
+					// offset x or z to check if wall is incoming
+					for(let i = 0; i < this.loc.length; i++)
+					{	
+						offsetLoc[i] = this.loc[i];						
+					}
+					
+					var movingRight = (this.velocity[0] > 0);
+					var movingLeft = (this.velocity[0] < 0);
+					var movingForward = (this.velocity[2] > 0);
+					var movingBackward = (this.velocity[2] < 0);
+					
+					if(movingRight)
+					{
+						//console.log("offset x");
+						offsetLoc[0] += 2;
+					}
+					else if(movingLeft)
+					{
+						offsetLoc[0] -= 2;
+					}
+					else if(movingForward)
+					{	
+						//console.log("offset z");
+						offsetLoc[2] += 2;
+					}
+					else if(movingBackward)
+					{
+						offsetLoc[2] -= 2;
+					}
+										 			
+					for(var solidKey in m.Solid)
+					{
+						if(m.Solid[solidKey] == this)
+						{
+							continue;
+						}							
+						
+						var aboutToHitObject = (m.CheckCollision(this, offsetLoc, m.Solid[solidKey], m.Solid[solidKey].loc)
+							&& (m.Solid[solidKey] instanceof WallCube || m.Solid[solidKey] instanceof Enemy || m.Solid[solidKey] instanceof Candle));
+							
+						if(aboutToHitObject)
+						{															
+							return true;
+						}
+					}											
+					return false;
+				}		
+	
+				FlipDirection()
+				{
+					// slighty move enemy back to prevent clipping
+					this.loc[0] -= this.velocity[0];
+					this.loc[2] -= this.velocity[2];
+					
+					// start moving in opposite direction
+					this.velocity[0] *= -1;
+					this.velocity[2] *= -1;
+					
+					this.rot[1] += Math.PI;					
+				}
+				
+				
+				OnCollisionEnter(other)
+				{
+					if(other instanceof Candle || other instanceof GoalFlag || other instanceof Enemy)
+					{						
+						this.FlipDirection();											
+					}					
+				}
+				
+				OnTriggerEnter(other)
+				{
+					// player bullet handled in player bullet trigger enter					
+					if(other instanceof Fireball)
+					{
+						other.doDestroy = true;
+						this.hp--;
+						this.isFlashing = true;
+						//console.log("hit enemy");
+					}									
+					
+					if(this.hp <= 0)
+					{														
+						this.MyPicture = explosion;
+						this.MyTexture = gl.createTexture();
+						gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);						
+						gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+						
+						document.getElementById("boom").play();
+						
+						this.isExploding = true;
+					}
+				}
+				
+				Animate()
+				{		
+					if(this.isExploding)
+					{
+						return;
+					}
+						
+					if(!this.isFlashing)
+					{
+						this.MyPicture = this.animations[this.animNum];
+					}
+					else
+					{
+						this.MyPicture = this.redAnimations[this.animNum];
+					}
+															
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+				}		
+
+				GetOpenTiles()
+				{
+					// get offset locs
+					var offsetLocLeft = [];
+					var offsetLocRight = [];
+					
+					var offsetLocForward = [];
+					var offsetLocBackward = [];
+					
+					// offset x or z to check if wall is incoming
+					for(let i = 0; i < this.loc.length; i++)
+					{	
+						offsetLocLeft[i] = this.loc[i];						
+						offsetLocRight[i] = this.loc[i];						
+						
+						offsetLocForward[i] = this.loc[i];
+						offsetLocBackward[i] = this.loc[i];
+					}
+					offsetLocLeft[0] -= WallCube.sideLength;
+					offsetLocRight[0] += WallCube.sideLength;					
+					
+					offsetLocForward[2] += WallCube.sideLength;
+					offsetLocBackward[2] -= WallCube.sideLength;
+					
+					var adjTiles = [offsetLocLeft, offsetLocRight, offsetLocForward, offsetLocBackward];
+					var tileNames = ["left", "right", "forward", "backward"];	
+					var possibleMoves = [];
+					
+					for(let i = 0; i < adjTiles.length; i++)
+					{
+						for(var solidKey in m.Solid)
+						{
+							if(m.Solid[solidKey] == this)
+							{
+								continue;
+							}							
+							
+							var tileOpen = !(m.CheckCollision(this, adjTiles[i], m.Solid[solidKey], m.Solid[solidKey].loc)
+								&& (m.Solid[solidKey] instanceof WallCube || m.Solid[solidKey] instanceof Candle));
+								
+							if(tileOpen)
+							{															
+								possibleMoves.push(tileNames[i]);
+							}
+						}																	
+					}		
+					return possibleMoves;					
+				}
+				
+				RandomizeDirection(openTiles)
+				{
+					var chosenTile = m.GetRandomInt(openTiles.length-1);
+					//console.log("chosen tile: " + openTiles[chosenTile]);
+					switch(openTiles[chosenTile])
+					{
+						case "left":
+							this.velocity[0] = -this.speed * m.gameSpeed;
+							this.velocity[2] = 0;		
+							this.rot[1] = 3*Math.PI/2;
+							//console.log("left rot");
+							break;
+						case "right":
+							this.velocity[0] = this.speed * m.gameSpeed;
+							this.velocity[2] = 0;		
+							this.rot[1] = Math.PI/2;							
+							//console.log("right rot");
+							break;
+						case "forward":
+							this.velocity[0] = 0;
+							this.velocity[2] = this.speed * m.gameSpeed;
+							this.rot[1] = 0;
+							//console.log("forward rot");
+							break;
+						case "backward":
+							this.velocity[0] = 0;
+							this.velocity[2] = -this.speed * m.gameSpeed;				
+							this.rot[1] = Math.PI;
+							//console.log("backward rot");
+							break;
+					}
+				}
+				
+				Render(program)
+				{
+					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+					var size = 3;          // 2 components per iteration
+					var type = gl.FLOAT;   // the data is 32bit floats
+					var normalize = false; // don't normalize the data
+					
+					//Make sure you change this to 5 for your TEXTURES
+					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
+					var offset = 0;        // start at the beginning of the buffer
+					gl.enableVertexAttribArray(positionAttributeLocation);
+					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
+										
+					//Now we have to do this for color
+					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
+					//We don't have to bind because we already have the correct buffer bound.
+					size = 2;
+					type = gl.FLOAT;
+					normalize = false;
+					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
+					offset = 3*Float32Array.BYTES_PER_ELEMENT;									//size of the offset
+					gl.enableVertexAttribArray(colorAttributeLocation);
+					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
+							
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//setup S
+					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
+					//Sets up our T
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);										
+							
+					var tranLoc  = gl.getUniformLocation(program,'u_translation');
+					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
+					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
+					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));
+				 
+					// uniforms are like state machines, makes crate face camera
+					var FaceCamLoc = gl.getUniformLocation(program,'FaceCam');
+					// uniform1i is 1 integer
+					gl.uniform1i(FaceCamLoc,true);
+				 
+					gl.drawArrays(gl.TRIANGLES, 0, this.vertCount);
+					 
+					// set face camera for all other objects to not face camera
+					gl.uniform1i(FaceCamLoc,false);
+				}
+				
+			}
+			
+			class Boo extends Enemy
+			{								
+				
+				constructor()
+				{
+					super();												
+					
+					this.vertices = [
+						// front wall of cube
+						-1, -1, -1,  0, 0,
+						1, -1, -1,  -1, 0,
+						1, 1, -1,  -1, -1,
+						
+						1, 1, -1,  0, 0,
+						-1, 1, -1,  1, 0,
+						-1, -1, -1,  1, 1																	
+					];									
+					
+					this.vertCount = 6;									
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
+					
+					this.speed = 0.045 * m.gameSpeed;
+					this.hp = 4;									
+					
+					this.velocity = [0,0,this.speed];					
+					
+					this.MyPicture = kingBoo;
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+					
+					this.animations = [kingBoo, boo2, kingBoo, boo3];
+					this.redAnimations = [redKingBoo, redKingBoo2, redKingBoo, redKingBoo3];
+					this.animTimer = 20 / (0.75*m.gameSpeed);	
+					this.animLength = 20 / (0.75*m.gameSpeed);
+				}
+				
+				Update()
+				{					
+					if(this.AboutToHitObject())
+					{												
+						this.FlipDirection();				
+					}
+					this.transform.doRotations(this.rot);					
+					
+					
+					if(this.isFlashing)
+					{
+						this.flashTimer--;
+						this.Animate();
+					}
+					if(this.flashTimer <= 0)
+					{
+						this.flashTimer = this.flashLength;
+						this.isFlashing = false;
+						this.Animate();				
+					}
+					
+					this.animTimer--;
+					if(this.animTimer <= 0)
+					{
+						this.animTimer = this.animLength;
+						this.animNum++;
+						if(this.animNum == this.animations.length)
+						{
+							this.animNum = 0;
+						}
+						this.Animate();
+					}
+					
+					
+					if(this.isExploding)
+					{
+						this.explosionTimer--;	
+						this.velocity[0] = 0;
+						this.velocity[2] = 0;
+					}
+					
+					if(this.explosionTimer <= 0)
+					{
+						m.DestroyObject(this.id);
+						//console.log("destroying enemy");
+					}
+					
+					this.Move();									
+				}						
+								
+			}
+			
+			class Bat extends Enemy
+			{								
+				
+				constructor()
+				{							
+					super();																									
+
+					this.vertices = [
+						// front wall of cube
+						-1, -1, -1,  0, 0,
+						1, -1, -1,  -1, 0,											
+						1, 1, -1,  -1, -1,
+						
+						1, 1, -1,  -1, -1,
+						-1, 1, -1,  0, -1,
+						-1, -1, -1,  0, 0																
+					];					
+					
+					this.vertCount = 6;
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
+					
+					this.speed = 0.055 * m.gameSpeed;
+					this.velocity[2] = -this.speed;
+					this.rot[1] = 0;
+					
+					this.hp = 2;
+					
+					this.MyPicture = bat;
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+					
+					this.animations = [bat, bat2, bat3, bat2];
+					this.redAnimations = [redBat, redBat2, redBat3, redBat2];
+					
+					this.animTimer = 20 / (0.75*m.gameSpeed);	
+					this.animLength = 20 / (0.75*m.gameSpeed);
+				}
+				
+				Update()
+				{					
+					if(this.AboutToHitObject())
+					{
+						var possibleMoves = this.GetOpenTiles();
+						this.RandomizeDirection(possibleMoves);
+					}
+					this.transform.doRotations(this.rot);
+					
+					if(this.isFlashing)
+					{
+						this.flashTimer--;
+						this.Animate();
+					}
+					if(this.flashTimer <= 0)
+					{
+						this.flashTimer = this.flashLength;
+						this.isFlashing = false;
+						this.Animate();
+					}
+					
+					this.animTimer--;
+					if(this.animTimer <= 0)
+					{
+						this.animTimer = this.animLength;
+						this.animNum++;
+						if(this.animNum == this.animations.length)
+						{
+							this.animNum = 0;
+						}
+						this.Animate();
+					}
+					
+					if(this.isExploding)
+					{
+						this.explosionTimer--;
+						this.velocity[0] = 0;
+						this.velocity[2] = 0;
+					}					
+					
+					if(this.explosionTimer <= 0)
+					{
+						m.DestroyObject(this.id);
+					}
+					this.Move();							
+				}					
+								
+			}
+			
+			class Skeleton extends Enemy
+			{								
+				
+				constructor()
+				{							
+					super();
+					
+					this.vertices = [
+						// front wall of cube
+						-1, -1, -1,  0, 0,
+						1, -1, -1,  -1, 0,											
+						1, 1, -1,  -1, -1,
+						
+						1, 1, -1,  -1, -1,
+						-1, 1, -1,  0, -1,
+						-1, -1, -1,  0, 0																											
+					];					
+					
+					this.vertCount = 6;					
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
+					
+					this.speed = 0.032 * m.gameSpeed;
+					this.velocity = [0,0,this.speed]
+					this.rot[0,Math.PI,0];
+					
+					this.hp = 3;
+					
+					this.animTimer = 120 / (0.75*m.gameSpeed);
+					this.animLength = 120 / (0.75*m.gameSpeed);
+					
+					this.MyPicture = skeleton;
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+					
+					this.animations = [skeleton, skeleton2, skeleton3];
+					this.redAnimations = [redSkeleton, redSkeleton2, redSkeleton3];
+				}
+				
+				ShootBone()
+				{
+					// offset enemy bullet so it doesn't get destroyed inside the enemy
+					var offsetLoc = [];
+					// shallow copy so offsetLoc doesn't reference enemy loc
+					for(let i = 0; i < this.loc.length; i++)
+					{
+						offsetLoc[i] = this.loc[i];
+						// change only x and z for offset
+						if(i == 0 || i == 2)
+						{
+							// don't change offset with velocity or bone spawns farther on 2x speed
+							// offset bone in direction of travel
+							if(this.velocity[i] > 0)
+							{
+								offsetLoc[i] += 1;				
+							}
+							else if(this.velocity[i] < 0)
+							{
+								offsetLoc[i] += -1;					
+							}
+						}													
+					}								
+					
+					var bullet = m.CreateObject(2, Bone, offsetLoc, this.rot);	
+					bullet.speedMultiplier = 0.1 * m.gameSpeed;
+					document.getElementById("bone_throw").play();		
+				}
+				
+				Update()
+				{
+					if(this.AboutToHitObject())
+					{
+						var possibleMoves = this.GetOpenTiles();
+						this.RandomizeDirection(possibleMoves);
+					}					
+					this.transform.doRotations(this.rot);
+					
+					if(this.isFlashing)
+					{
+						this.flashTimer--;
+						this.Animate();
+					}
+					if(this.flashTimer <= 0)
+					{
+						this.flashTimer = this.flashLength;
+						this.isFlashing = false;
+						this.Animate();
+					}
+							
+					this.animTimer--;							
+					if(this.animTimer <= 0)
+					{
+						this.ShootBone();
+						
+						this.animTimer = this.animLength;
+						this.animNum++;
+						if(this.animNum == this.animations.length)
+						{
+							this.animNum = 0;
+						}											
+						this.Animate();																	
+					}					
+					
+					if(this.isExploding)
+					{
+						this.explosionTimer--;
+						this.velocity[0] = 0;
+						this.velocity[2] = 0;
+					}
+					
+					if(this.explosionTimer <= 0)
+					{
+						m.DestroyObject(this.id);
+					}			
+									
+					this.Move();
+				}				
+								
+			}					
+			
+			class Candle extends GameObject
+			{							
+				constructor()
+				{
+					super();	
+					
+					this.buffer = gl.createBuffer();
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);		
+
+					this.pointLightNum = 1;
+					this.SetPointLightNum();		
+
+					this.isTrigger = false;
+					
+					this.vertices =
+					[					
+						// front candle wall
+						-0.05, -0.1, -0.05,  0, 0,
+						0.05, -0.1, -0.05,  1, 0,
+						0.05, 0.2, -0.05,  1, 1,
+					
+						0.05, 0.2, -0.05,  0, 0,
+						-0.05, 0.2, -0.05,  1, 0,
+						-0.05, -0.1, -0.05,  1, 1,
+						
+						// right candle wall
+						0.05, -0.1, -0.05,  0, 0,
+						0.05, -0.1, 0.05,  1, 0,
+						0.05, 0.2, 0.05,  1, 1, 
+						
+						0.05, 0.2, 0.05,  0, 0,
+						0.05, 0.2, -0.05,  1, 0,
+						0.05, -0.1, -0.05,  1, 1,
+						
+						// left candle wall
+						-0.05, -0.1, -0.05,  0, 0,
+						-0.05, -0.1, 0.05,  1, 0,
+						-0.05, 0.2, 0.05,  1, 1,
+						
+						-0.05, 0.2, 0.05,  0, 0,
+						-0.05, 0.2, -0.05,  1, 0,
+						-0.05, -0.1, -0.05,  1, 1,
+						
+						// back candle wall
+						-0.05, -0.1, 0.05,  0, 0,
+						0.05, -0.1, 0.05,  1, 0,
+						0.05, 0.2, 0.05,  1, 1, 
+						
+						0.05, 0.2, 0.05,  0, 0,
+						-0.05, 0.2, 0.05,  1, 0,
+						-0.05, -0.1, 0.05,  1, 1,
+						
+						// flame on top									
+						-0.03, 0.2, -0.03,  0, 0,
+						0.03, 0.2, -0.03,  1, 0,
+						0, 0.5, 0,  1, 1,
+						
+						-0.03, 0.2, -0.03,  0, 0,
+						0, 0.2, 0.03,  1, 0,
+						0, 0.5, 0,  1, 1,
+						
+						0.03, 0.2, -0.03,  0, 0,
+						0, 0.2, 0.03,  1, 0,
+						0, 0.5, 0,  1, 1						
+					];				
+
+					this.resizer = 2;
+					this.Resize(2);
+					
+					this.collisionRadius = 0.3 * this.resizer;								
+					this.numBaseVertices = 24;
+					this.numFlameVertices = 9;						
+					
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);						
+					
+					this.candlePicture = candle;
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);					
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.candlePicture));
+					
+					this.flamePicture = flame;
+					this.flameTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.flameTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,16,16,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.flamePicture));
+				}								
+				
+				SetPointLightNum()
+				{
+					for(var id in m.Visual)
+					{
+						if(m.Visual[id] instanceof Candle)
+						{
+							this.pointLightNum++;							
+						}
+					}				
+					for(var id in m.Solid)
+					{
+						if(m.Solid[id] instanceof Candle)
+						{
+							this.pointLightNum++;							
+						}
+					}						
+					for(var id in m.Trigger)
+					{
+						if(m.Trigger[id] instanceof Candle)
+						{
+							this.pointLightNum++;							
+						}
+					}								
+				}
+				
+				Update()
+				{											
+					this.transform.doRotations(this.rot);									
+					this.Move();								
+				}								
+				
+				Render(program)
+				{				
+					var lightString = ('pointLightPosition' + this.pointLightNum);					
+					//console.log("rendering: " + lightString);
+					
+					var p_lightLoc  = gl.getUniformLocation(program, lightString);																								
+					gl.uniform3fv(p_lightLoc, new Float32Array(this.loc));
+															
+					var tranLoc  = gl.getUniformLocation(program,'u_translation');
+					gl.uniform3fv(tranLoc, new Float32Array(this.loc));
+					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
+					gl.uniform3fv(thetaLoc, new Float32Array(this.rot));
+					var scaleLoc = gl.getUniformLocation(program,'u_scale');
+					gl.uniform3fv(scaleLoc, new Float32Array(this.scale));												
+					
+					//Position
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+					var positionAttributeLocation = gl.getUniformLocation(program, lightString);
+					var size = 3;          
+					var type = gl.FLOAT;   
+					var normalize = false; 
+					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	
+					var offset = 0;        // start at the beginning of the buffer
+					gl.enableVertexAttribArray(positionAttributeLocation);
+					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
+
+					//Color
+					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
+					size = 2;
+					type = gl.FLOAT;
+					normalize = false;
+					stride = 5*Float32Array.BYTES_PER_ELEMENT;	
+					offset = 3*Float32Array.BYTES_PER_ELEMENT;	
+					gl.enableVertexAttribArray(colorAttributeLocation);
+					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);	
+
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//setup S
+					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
+					//Sets up our T
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);										
+
+					var primitiveType = gl.TRIANGLES;
+					offset = 0;					
+					gl.drawArrays(primitiveType, offset, this.numBaseVertices);	
+
+					gl.bindTexture(gl.TEXTURE_2D, this.flameTexture);
+					//setup S
+					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
+					//Sets up our T
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);					
+					
+					var primitiveType = gl.TRIANGLES;
+					offset = 0;					
+					gl.drawArrays(primitiveType, this.numBaseVertices, this.numFlameVertices);	
+				}
+			}	
+
+			class GoalFlag extends GameObject
+			{
+				constructor()
+				{
+					super();
+										
+					this.buffer = gl.createBuffer();
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);																	
+					
+					this.vertices =
+					[																
+						// front flag pole side
+						0, 0, 0,  0, 0,
+						0.1, 0, 0,  1, 0,
+						0.1, 1, 0,  1, 1,
+												
+						0.1, 1, 0,  0, 0,
+						0, 1, 0,  1, 0,
+						0, 0, 0,  1, 1,
+									
+						// left flag pole side
+						0, 0, 0,  0, 0,
+						0, 0, 0.1,  1, 0,
+						0, 1, 0.1,  1, 1,
+						
+						0, 1, 0.1,  0, 0,
+						0, 1, 0,  1, 0,
+						0, 0, 0,  1, 1,
+						
+						// right flag pole side
+						0.1, 0, 0,  0, 0,
+						0.1, 0, 0.1,  1, 0,
+						0.1, 0.6, 0.1,  1, 1,
+						
+						0.1, 1, 0.1,  0, 0,
+						0.1, 1, 0,  1, 0,
+						0.1, 0, 0,  1, 1,
+						
+						// back flag pole side
+						0, 0, 0.1,  0, 0,
+						0.1, 0, 0.1,  1, 0,
+						0.1, 1, 0.1,  1, 1,
+					
+						0.1, 1, 0.1,  0, 0,
+						0, 1, 0.1,  1, 0,
+						0, 0, 0.1,  1, 1,
+						
+						// green flag
+						0.1, 0.4, 0,  0, 0,
+						0.1, 1, 0,  1, 0,
+						0.8, 0.7, 0,  1, 1
+					];						
+						
+					this.resize = 2;					
+					this.Resize(this.resize);					
+					this.collisionRadius = 0.5 * this.resize;
+
+					this.numPoleVertices = 24;
+					this.numFlagVertices = 3;									
+					
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);	
+					
+					this.polePicture = grey;
+					this.poleTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.poleTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,16,16,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.polePicture));
+					
+					this.flagPicture = green;
+					this.flagTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.flagTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,16,16,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.flagPicture));
+				}
+				
+				Update()
+				{
+					// don't move flag					
+				}
+				
+				OnCollisionEnter(other)
+				{
+					if(other instanceof Camera)
+					{															
+						document.getElementById("gameWin").innerHTML = "You beat level " + m.level + "!";
+						document.getElementById("gameWin").style.marginRight = "26%";
+							
+						m.messageTimer = m.messageLength;
+						m.messagePlaying = true;
+						
+						// go to next level
+						m.level++;				
+						m.AdvanceLevel();		
+
+						//console.log("advancing level");
+					}
+				}
+				
+				Render(program)
+				{	
+					var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+					var size = 3;          // 2 components per iteration
+					var type = gl.FLOAT;   // the data is 32bit floats
+					var normalize = false; // don't normalize the data					
+					//Make sure you change this to 5 for your TEXTURES
+					var stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element     // 0 = move forward size * sizeof(type) each iteration to get the next position
+					var offset = 0;        // start at the beginning of the buffer
+					gl.enableVertexAttribArray(positionAttributeLocation);
+					gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
+					
+					var tranLoc  = gl.getUniformLocation(program,'u_translation');
+					gl.uniform3fv(tranLoc,new Float32Array(this.loc));
+					var thetaLoc = gl.getUniformLocation(program,'u_rotation');
+					gl.uniform3fv(thetaLoc,new Float32Array(this.rot));
+					var scaleLoc = gl.getUniformLocation(program,'u_scale');
+					gl.uniform3fv(scaleLoc, new Float32Array(this.scale));
+										
+					//Now we have to do this for color
+					var colorAttributeLocation = gl.getAttribLocation(program,"texcord");
+					//We don't have to bind because we already have the correct buffer bound.
+					size = 2;
+					type = gl.FLOAT;
+					normalize = false;
+					stride = 5*Float32Array.BYTES_PER_ELEMENT;	//Size in bytes of each element
+					offset = 3*Float32Array.BYTES_PER_ELEMENT;	//size of the offset
+					gl.enableVertexAttribArray(colorAttributeLocation);
+					gl.vertexAttribPointer(colorAttributeLocation, size, type, normalize, stride, offset);
+							
+					gl.bindTexture(gl.TEXTURE_2D, this.poleTexture);
+					//setup S
+					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
+					//Sets up our T
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);					
+					//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+				 								 
+					gl.drawArrays(gl.TRIANGLES, 0, this.numPoleVertices);	
+
+					gl.bindTexture(gl.TEXTURE_2D, this.flagTexture);
+					//setup S
+					gl.texParameteri(gl.TEXTURE_2D,	gl.TEXTURE_WRAP_S,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE
+					//Sets up our T
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); //gl.MIRRORED_REPEAT//gl.CLAMP_TO_EDGE                   
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+					gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);										 
+					
+					gl.drawArrays(gl.TRIANGLES, this.numPoleVertices, this.numFlagVertices);
+					
+				}
+			}			
+			
+			class BossBoo extends Enemy
+			{
+				constructor()
+				{
+					super();												
+					
+					this.vertices = [
+						// front wall of cube
+						-1, -1, -1,  0, 0,
+						1, -1, -1,  -1, 0,
+						1, 1, -1,  -1, -1,
+						
+						1, 1, -1,  0, 0,
+						-1, 1, -1,  1, 0,
+						-1, -1, -1,  1, 1																	
+					];			
+
+					this.Resize(3);
+					
+					this.vertCount = 6;									
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
+					
+					this.speed = 0.03 * m.gameSpeed;
+					this.hp = 15;					
+					
+					this.collisionRadius = 3.0;
+					
+					this.name = "Boo";
+					
+					this.velocity = [0,0,this.speed];					
+					
+					this.MyPicture = kingBoo;
+					this.MyTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, this.MyTexture);
+					//We only want to do this once.
+					gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,128,128,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(this.MyPicture));
+					
+					this.animations = [kingBoo, boo2, kingBoo, boo3];
+					this.redAnimations = [redKingBoo, redKingBoo2, redKingBoo, redKingBoo3];
+					
+					this.animTimer = 40 / (0.75*m.gameSpeed);
+					this.animNum = 1;		
+
+					this.shootTimer = 100 / (0.75*m.gameSpeed);	
+					this.numShots = 0;
+				}
+				
+				Update()
+				{			
+					if(m.level == 3)
+					{
+						if(this.AboutToHitObject())
+						{
+							var possibleMoves = this.GetOpenTiles();
+							this.RandomizeDirection(possibleMoves);
+						}
+						this.transform.doRotations(this.rot);
+						
+						if(this.isFlashing)
+						{
+							this.flashTimer--;
+							this.Animate();
+						}
+						if(this.flashTimer <= 0)
+						{
+							this.flashTimer = this.flashLength;
+							this.isFlashing = false;
+							this.Animate();
+						}
+						
+						this.animTimer--;
+						if(this.animTimer <= 0)
+						{
+							this.animTimer = 40;
+							this.animNum++;
+							if(this.animNum == this.animations.length)
+							{
+								this.animNum = 0;
+							}
+							this.Animate();
+						}
+						
+						this.shootTimer--;
+						if(this.shootTimer <= 0)
+						{
+							this.shootTimer = 100;	
+							this.Shoot();							
+							document.getElementById("fireball").play();							
+						}
+						
+						if(this.isExploding)
+						{
+							this.explosionTimer--;
+							this.velocity[0] = 0;
+							this.velocity[2] = 0;
+						}					
+						
+						if(this.explosionTimer <= 0)
+						{
+							m.DestroyObject(this.id);
+							m.gameStarted = false;
+							document.getElementById("gameWin").innerHTML = "You beat the boos!";
+							document.getElementById("gameWin").style.marginRight = "29%";
+							m.gameWon = true;
+						}
+						this.Move();
+					}						
+				}							
+				
+				// shoot bullets in circle
+				Shoot()
+				{										
+					var numBullets = 20;
+					for(let i = 0; i < numBullets; i++)
+					{											
+						this.rot[1] = (i/numBullets)*(2*Math.PI);						
+						
+						// offset enemy bullet so it doesn't get destroyed inside the enemy
+						var offsetLoc = [];
+						// shallow copy so offsetLoc doesn't reference enemy loc
+						for(let i = 0; i < this.loc.length; i++)
+						{
+							offsetLoc[i] = this.loc[i];																							
+						}				
+						// lower fireball since boo loc is higher than player
+						offsetLoc[1] -= 0.5;									
+												
+						var bullet = m.CreateObject(2, PurpleFireball, offsetLoc, this.rot);	
+						bullet.speedMultiplier = 0.1 * m.gameSpeed;					
+					}
+					this.rot[1] = 0;
+				}						
+							
+			}
+		</script>		
+			
+		<script id="main">
+			class main
+			{	
+				constructor()
+				{
+					this.Visual = [];
+					this.Solid = [];
+					this.Trigger = [];
+					this.Keys = [];
+					this.ObjectCounter = 0;					
+				
+					this.myWEBGL = new WebGL_Interface();
+
+					this.gameStarted = false;
+					this.titleOpen = true;
+					this.optionsOpen = false;
+					
+					this.program = this.myWEBGL.program;	
+					gl.useProgram(this.program);
+					requestAnimationFrame(main.MainLoop);					
+					
+					this.messageTimer = 200;
+					this.messageLength = 200;
+					this.messagePlaying = false;				
+					
+					// 1.6 is regarded as 1x speed since I needed to speed up game to feel good
+					this.gameSpeed = 1.6;																																									
+					
+					var tempLoc = gl.getUniformLocation(this.program,'n');
+					gl.uniform1f(tempLoc,.1);
+					tempLoc = gl.getUniformLocation(this.program,'f');
+					gl.uniform1f(tempLoc,500);
+					tempLoc = gl.getUniformLocation(this.program,'r');
+					gl.uniform1f(tempLoc,.1);
+					tempLoc = gl.getUniformLocation(this.program,'t');
+					gl.uniform1f(tempLoc,.1);											
+				}
+				
+				GetRandomInt(max)
+				{	
+					return Math.floor(Math.random()*(max+1));
+				}	
+				
+				SetBorders(level)
+				{
+					for(let i = 0; i < level.length; i++)
+					{						
+						for(let j = 0; j < level[i].length; j++)
+						{
+							var isBorder = (i == 0 || i == level.length-1 || j == 0 || j == level[i].length-1);														
+							
+							if(isBorder)
+							{
+								level[i][j] = 1;
+							}
+						}
+					}
+				}
+				
+				PlaceMaze(level)
+				{
+					var levelXOffset = 0;
+					if(this.level == 2)
+					{
+						levelXOffset = 100;
+					}
+					else if(this.level == 3)
+					{
+						levelXOffset = 200;
+					}
+					
+					//console.log("placing level: " + this.level);					
+					
+					for(let i = 0; i < level.length; i++)
+					{						
+						for(let j = 0; j < level[i].length; j++)
+						{
+							var isPlayerStart = (i == 2 && j == 2);
+							if(isPlayerStart)
+							{
+								continue;
+							}
+							
+							switch(level[i][j])
+							{
+								case 0:
+									// a 0 in Level1 represents empty space	
+									// create ceiling block above empty tiles
+									//this.CreateObject(1, WallCube1, [2*j,6,2*i], [0,0,0]);																			
+									break;
+								case 1:
+									for(let k = 0; k < 1; k++)
+									{
+										var cube = this.CreateObject(1, WallCube1, [levelXOffset+2*j,k*2,2*i], [0,0,0]);											
+										//console.log("making wall");
+									}									
+									break;
+								case 2:									
+									for(let k = 0; k < 1; k++)
+									{
+										this.CreateObject(1, WallCube2, [levelXOffset+2*j,k*2,2*i], [0,0,0]);									
+									}									
+									break;
+								case 3:
+									// create point light (only if enough variables are used in shader)
+									//this.CreateObject(1, Candle, [2*j,0,2*i], [0,0,0]);	
+									break;
+								case 4:									
+									this.CreateObject(1, Bat, [levelXOffset+2*j,0,2*i], [0,0,0]);										
+									break;
+								case 5:									
+									this.CreateObject(1, Boo, [levelXOffset+2*j,0,2*i], [0,0,0]);								
+									break
+								case 6:									
+									this.CreateObject(1, Skeleton, [levelXOffset+2*j,0,2*i], [0,0,0]);	
+									break;		
+								case 7: 
+									this.CreateObject(1, GoalFlag, [levelXOffset+2*j,-1,2*i], [0,0,0]);	
+									break;
+							}												
+						}
+						
+					}
+				}
+				
+				// should generate paths at least 4 tiles wide and ensure the maze is connected
+				// avoid paths longer than 7 tiles wide
+				GenerateMaze()
+				{					
+					var isMazePossible = false;
+					
+					for(let i = 0; i < this.Level1.length; i++)
+					{
+						for(let j = 0; j < this.Level1[i].length; j++)
+						{							
+							// the higher the parameter, the more open the maze will be
+							var randInt = this.GetRandomInt(5);
+							switch(randInt)
+							{
+								case 0:
+									// a 0 in Level1 represents empty space
+									this.Level1[i][j] = 0;
+									break;
+								case 1:
+									this.Level1[i][j] = 1;
+									//m.CreateObject(1, WallCube, [j,0,i], [0,0,0]);																			
+									break;
+								case 2:
+									this.Level1[i][j] = 2;									
+									break;	
+								default:
+									// do nothing and keep cell empty									
+							}																					
+						}
+					}
+				}
+				
+				AdvanceLevel()
+				{
+					m.DestroyCamera();
+					
+					if(this.level == 2)
+					{
+						m.CreateObject(1, Camera, [115,0,5], [0,0,0]);
+					}
+					else if(this.level == 3)
+					{
+						m.CreateObject(1, Camera, [215,0,5], [0,0,0]);
+					}
+					else
+					{
+						document.getElementById("gameWin").innerHTML = "You Win!!!";
+					}									
+				}
+				
+				/*TestMaze()
+				{				
+					var startX = 2;
+					var startY = 2;
+
+					let adjTiles = [];
+					
+					for(let i = 0; i < this.Level1.length; i++)
+					{
+						for(let j = 0; j < this.Level1[i].length; j++)
+						{
+							let randIndx = this.getRandomInt(adjTiles.length);			
+				
+							switch(adjTiles[randIndx])
+							{
+								case "top":
+									this.y -= 1;
+									break;
+								case "right":
+									this.x += 1;
+									break;
+								case "bottom":
+									this.y += 1;
+									break;
+								case "left":
+									this.x -= 1;						
+									break;
+								case "hero":
+									this.attack(gameMain.hero);
+									break;
+							}			
+						}				
+					}
+				}*/
+				
+				UpdateAll()
+				{					
+					// using for loop gives key since it is dictionary
+					for(var i in this.Visual)
+					{
+						this.Visual[i].Update();
+					}				
+					for(var i in this.Solid)
+					{
+						this.Solid[i].Update();
+					}	
+					for(var i in this.Trigger)
+					{
+						this.Trigger[i].Update();
+					}								
+				}
+				
+				RenderAll()
+				{
+					for(var i in this.Visual)
+					{
+						this.Visual[i].Render(this.program);	
+						//console.log("Rendering visual at " + this.Visual[i].loc);													
+					}				
+					for(var i in this.Solid)
+					{
+						this.Solid[i].Render(this.program);
+						//console.log("Rendering solid at " + this.Solid[i].loc);						
+					}	
+					for(var i in this.Trigger)
+					{
+						this.Trigger[i].Render(this.program);
+						//console.log("Rendering trigger at " + this.Trigger[i].loc);						
+					}	
+				}
+																				
+				CheckCollision(obj1, loc1, obj2, loc2)
+				{															
+					/*if(obj1.isCube || obj2.isCube)
+					{
+						let totalRange = 0;
+						
+						if(obj1.isCube && obj2.isCube)
+						{							
+							totalRange = obj1.sideLength/2 + obj2.sideLength/2;
+							//console.log("both cube");
+							console.log("total range: " + totalRange);
+						}
+						else if(obj1.isCube)
+						{							
+							totalRange = obj1.sideLength/2 + obj2.collisionRadius;
+							//console.log("one cube");
+							console.log("total range: " + totalRange);
+						}
+						else if(obj2.isCube)
+						{							
+							totalRange = obj1.collisionRadius + obj2.sideLength/2;
+							//console.log("one cube");
+							console.log("obj1 radius: " + obj1.collisionRadius);
+						}		
+						
+						//console.log("obj1 radius: " + obj1.collisionRadius);
+						//console.log("obj2 radius: " + obj2.collisionRadius);
+
+						//console.log("total range: " + totalRange);
+						// what if negative?
+						let xOverlap = ((obj2.loc[0] - obj1.loc[0]) < totalRange);
+						let yOverlap = ((obj2.loc[1] - obj1.loc[1]) < totalRange);
+						let zOverlap = ((obj2.loc[2] - obj1.loc[2]) < totalRange);
+						
+						if(xOverlap && yOverlap && zOverlap)
+						{
+							console.log("cube collision");
+							return true;							
+						}
+						return false;
+					}					
+					else
+					{	*/						
+						
+						// spherical collision if distance betweens locs is less than sum of radii							
+						var dist = Math.sqrt((loc2[0]-loc1[0])**2 + (loc2[1]-loc1[1])**2 + (loc2[2]-loc1[2])**2);
+						
+						/*console.log("x sum: " + (loc2[0]-loc1[0])**2);
+						console.log(("y sum: " + (loc2[1]-loc1[1])**2));
+						console.log("z sum: " + (loc2[2]-loc1[2])**2)*/
+						
+						//console.log("loc1: " + loc1);
+						//console.log("loc2: " + loc2);
+						//console.log("dist: " + dist);
+						//console.log("obj1 radius: " + obj1.collisionRadius);
+						//console.log("obj2 radius: " + obj2.collisionRadius);
+						
+						if(dist < obj1.collisionRadius + obj2.collisionRadius)
+						{
+							//console.log("sphere collision");							
+							return true;			
+						}
+						return false;					
+					//}
+				}	
+
+				// delete any objects with doDestroy = true
+				ObjectCleanup()
+				{
+					for(var id in this.Visual)
+					{
+						if(this.Visual[id].doDestroy)
+						{
+							delete this.Visual[id];						
+						}
+					}				
+					for(var id in this.Solid)
+					{
+						if(this.Solid[id].doDestroy)
+						{
+							delete this.Solid[id];				
+						}
+					}	
+					for(var id in this.Trigger)
+					{
+						if(this.Trigger[id].doDestroy)
+						{
+							delete this.Trigger[id];							
+						}
+					}						
+				}	
+				
+				DestroyCamera()
+				{						
+					for(var id in this.Solid)
+					{
+						if(this.Solid[id] instanceof Camera)
+						{
+							delete this.Solid[id];				
+						}
+					}					
+				}
+				
+				HandleMessage()
+				{
+					if(this.messagePlaying)
+					{
+						this.messageTimer--;
+					}
+					// could include this to skip the next conditional check
+					/*else
+					{
+						return;
+					}*/
+					
+					if(this.messageTimer <= 0 && !this.gameWon)
+					{
+						document.getElementById("gameWin").innerHTML = "";
+						this.messagePlaying = false;						
+					}
+				}
+
+				ResetPlayer()
+				{										
+					//console.log("reseting player");
+					
+					this.DestroyCamera();
+					if(this.level == 1)
+					{
+						m.CreateObject(1,Camera,[2,0,2],[0,0,0]);
+					}
+					else if(this.level == 2)
+					{
+						m.CreateObject(1, Camera, [115,0,5], [0,0,0]);
+					}
+					else if(this.level == 3)
+					{
+						m.CreateObject(1, Camera, [215,0,5], [0,0,0]);
+						this.ResetBoss();
+					}											
+				}
+				
+				ResetBoss()
+				{
+					for(var id in this.Solid)
+					{
+						if(this.Solid[id] instanceof BossBoo)
+						{
+							this.Solid[id].hp = 15;
+							this.Solid[id].loc = [215,1,15];
+							//console.log("reset hp");
+						}
+					}
+				}
+				
+				CreateObject(type, prefab, loc, rot)
+				{
+					// type 0 = visual
+					// type 1 = solid
+					// type 2 = trigger
+					var temp = new prefab;
+					
+					var id = "ID" + this.ObjectCounter;										
+					temp.id = id;
+					temp.prefab = prefab;
+					
+					this.ObjectCounter++;	
+					//console.log("ObjectCounter: " + this.ObjectCounter);
+					
+					// deep copy coordinates and rotation
+					for(let i = 0; i < 3; i++)
+					{
+						temp.loc[i] = loc[i];
+						temp.rot[i] = rot[i];
+					}
+
+					//console.log("Made object at " + loc);
+					
+					switch(type)
+					{
+						case 0:
+							this.Visual[id] = temp;
+							break;
+						case 1:
+							this.Solid[id] = temp;
+							break;
+						case 2:
+							temp.isTrigger = true;
+							this.Trigger[id] = temp;							
+							break;
+						default:
+							break;
+					}
+					
+					// return the game object so the user can customize
+					return temp;
+				}
+				
+				DestroyObject(id)
+				{
+					if(id in this.Visual)
+					{
+						delete this.Visual[id];
+						return true;
+					}
+					if(id in this.Solid)
+					{
+						delete this.Solid[id];
+						return true;
+					}
+					if(id in this.Trigger)
+					{
+						delete this.Trigger[id];
+						return true;
+					}
+					
+					return false;
+				}
+				
+				KeyDown(event)
+				{					
+					// need to check if space is held because of issue where 
+					// onkeydown refires after holding for over 1 second
+					if(event.key === " " && !this.spaceHeld)
+					{
+						this.Keys[String.fromCharCode(event.keyCode)] = true;	
+						this.spaceHeld = true;
+					}
+					else if(event.key != " ")
+					{
+						// set key held as true. fromCharCode is always capital
+						this.Keys[String.fromCharCode(event.keyCode)] = true;		
+					}					
+					//console.log("The number of the key pressed:  " + event.keyCode +
+					//",the string of the event code: "+String.fromCharCode(event.keyCode));                   
+				}
+				
+				KeyUp(event)
+				{					
+					this.Keys[String.fromCharCode(event.keyCode)] = false;
+					
+					if(event.key === " ")
+					{
+						this.spaceHeld = false;
+					}					
+					//console.log("The number of the key pressed:  "+event.keyCode+
+					//",the string of the event code: "+ String.fromCharCode(event.keyCode));                   
+				}
+				
+				// utility function for game objects
+				TestKey(test)
+				{
+					// this.Keys is the dictionary of keyboard keys currently held down
+					if(test in this.Keys)
+					{
+						return this.Keys[test];
+					}
+					return false;
+				}
+				
+				MouseClick(event)
+				{
+					var rect = canvas.getBoundingClientRect();
+					var realX = event.clientX - rect.left;
+					var realY = event.clientY - rect.top;					
+					var x = -1 + 2*realX/myCanvas.width;
+					var y = -1 + 2*(myCanvas.height - realY)/myCanvas.height;					
+					
+					var color = new Uint8Array(4*gl.drawingBufferWidth*gl.drawingBufferHeight);
+					//console.log("Picking at "+ realX+","+Math.round(myCanvas.height-realY));
+					gl.readPixels(0,0,gl.drawingBufferWidth,gl.drawingBufferHeight,gl.RGBA,gl.UNSIGNED_BYTE,color);
+					
+					for(var i in color)
+					{
+						if(color[i] > 0)
+						{
+							console.log(color);
+							break;
+						}
+					}
+				}
+				
+				OpenOptions()
+				{
+					this.optionsOpen = true;
+					this.titleOpen = false;
+										
+					document.getElementById("start").remove();
+					document.getElementById("options").remove();									
+					
+					var newElement = document.createElement("button");
+					newElement.innerHTML = "Game Speed 0.5x";
+					newElement.color = black;
+					newElement.style = "color: black; background-color: lightyellow; width: 500px; font-size: 40pt; position: absolute; top: 30%;";
+					newElement.onclick = function()
+					{
+						m.gameSpeed = 0.8;
+					}
+					
+					var newElement2 = document.createElement("button");
+					newElement2.innerHTML = "Game Speed 1x";
+					newElement2.color = black;
+					newElement2.style = "color: black; background-color: lightyellow; width: 500px; font-size: 40pt; position: absolute; top: 45%;";
+					newElement2.onclick = function()
+					{
+						m.gameSpeed = 1.6;
+					}
+					
+					var newElement3 = document.createElement("button");
+					newElement3.innerHTML = "Game Speed 2x";
+					newElement3.color = black;
+					newElement3.style = "color: black; background-color: lightyellow; width: 500px; font-size: 40pt; position: absolute; top: 60%;";							
+					newElement3.onclick = function()
+					{
+						m.gameSpeed = 3.2;
+					}
+					
+					var newElement4 = document.createElement("button");
+					newElement4.innerHTML = "Start";
+					newElement4.color = black;
+					newElement4.style = "color: black; background-color: lightyellow; width: 500px; font-size: 40pt; position: absolute; top: 80%;";
+					newElement4.onclick = function()
+					{
+						m.gameStarted = true;
+						m.ClearMenu();
+						document.getElementById("hp").style.visibility = "visible";	
+						
+						m.PlaceLevels();							
+						requestAnimationFrame(main.MainLoop);			
+					};
+					
+					document.getElementById("container").appendChild(newElement);
+					document.getElementById("container").appendChild(newElement2);
+					document.getElementById("container").appendChild(newElement3);
+					document.getElementById("container").appendChild(newElement4);
+				}
+				
+				ClearMenu()
+				{
+					document.getElementById("title").remove();
+										
+					if(this.titleOpen)
+					{												
+						document.getElementById("start").remove();
+						document.getElementById("options").remove();						
+					}
+					else if(this.optionsOpen)
+					{						
+						var buttons = document.querySelectorAll("button");
+						for(let i = 0; i < buttons.length; i++)
+						{
+							buttons[i].remove();
+						}						
+					}										
+				}
+				
+				PlaceLevels()
+				{
+					this.Level1 = [
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,1,0,0,4,0,0,0,0,0,0,0,0,0,4,0,0,0,6,0,0,0,0,0,0,0,0],
+						[0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,1,2,1,1,2,1,0,0,0,0],
+						[0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0],
+						[0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,7,0,0,2,0,0,0,0],
+						[0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,1,0,0,0,0],
+						[0,0,4,0,1,2,1,2,1,2,1,2,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,4,0,0,1,0,0,0,0,0,1,0,0,6,0],
+						[0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,2,0,0,0,0,0,2,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,5,0,0],
+						[0,0,0,0,1,2,1,2,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0],
+						[0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,2,0,0,0,0,0,1,0,0,0,0],
+						[0,0,0,0,0,0,0,1,0,0,0,2,0,0,0,0,0,0,0,1,0,0,0,0,0,2,0,0,0,0],
+						[0,0,0,0,0,5,0,2,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0],
+						[0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,2,0,0,0,0,0,1,0,0,0,0],
+						[0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,2,0,0,0,0],
+						[0,0,0,0,0,0,0,2,0,0,0,2,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0],
+						[0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,2,0,0,0,0,0,1,0,0,0,0],
+						[0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,2,0,0,0,0],
+						[0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,2,0,0,6,0,0,0,0,0,0,0],
+						[0,0,5,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,1,1,2,1,2,1,2,1,2,1,1,2,1,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+					];
+					
+					this.Level2 = [
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,2,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,3,0,0,0,0,0,0,2,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,6,0,0],
+						[0,0,0,0,0,1,2,1,2,1,2,1,2,1,2,1,2,1,2,0,0,1,2,1,2,0,0,0,0,0],
+						[0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,2,0,0,1,0,0,0,0,0],
+						[0,0,4,0,0,1,0,0,0,0,3,0,0,0,0,0,0,0,2,0,0,1,0,0,2,0,0,0,0,0],
+						[0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,2,0,0,1,0,0,0,0,0],
+						[0,0,0,0,0,1,0,0,7,0,0,0,0,0,5,0,0,0,2,0,0,1,0,0,2,0,3,0,0,0],
+						[0,0,3,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,2,0,0,1,0,0,0,0,0],
+						[0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,1,0,0,2,0,0,0,0,0],
+						[0,0,0,0,0,2,1,2,1,2,1,2,0,0,0,0,0,0,1,0,0,2,0,0,1,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,2,0,0,0,0,0,2,0,0,0,0,0],
+						[0,0,6,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,2,0,0,0,0,0,2,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,1,2,1,2,1,2,1,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,1,2,1,2,1,2,1,2,1,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+					];
+					
+					this.Level3 = [
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+						[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+					];
+					
+					this.rows = 30;
+					this.cols = 30;
+					
+					this.level = 1;
+					
+					this.SetBorders(this.Level1);
+					this.PlaceMaze(this.Level1);
+					
+					this.level++;
+					
+					this.SetBorders(this.Level2);
+					this.PlaceMaze(this.Level2);
+					
+					this.level++;
+					
+					this.SetBorders(this.Level3);
+					this.PlaceMaze(this.Level3);
+					
+					this.level = 1;
+					this.levelsPlaced = true;
+				}
+				
+				//Static call backs go down here
+				//   |
+				//  \ /
+				//   v
+				static keyD(event)
+				{
+					m.KeyDown(event);
+				}
+				
+				static keyU(event)
+				{
+					m.KeyUp(event);
+				}
+				
+				static mouseH(event)
+				{
+					m.MouseClick(event);
+				}						
+				
+				static MainLoop()
+				{		
+					if(!m.gameStarted)
+					{
+						m.averageTime = 0;	
+						m.loops = 0;
+					}
+					
+					if(m.gameStarted)
+					{			
+						if(m.loops == 0)
+						{
+							m.startTime = performance.now();
+						}						
+						
+						document.getElementById("theme").play();																																			
+						
+						// make background black every flame
+						gl.clearColor(0,0,0,1);
+						gl.clear(gl.COLOR_BUFFER_BIT);
+							
+						//console.log("game started");
+						m.UpdateAll();
+						m.RenderAll();
+						m.ObjectCleanup();																	
+						m.HandleMessage();						
+						requestAnimationFrame(main.MainLoop);	
+						
+						m.loops++;					
+						m.averageTime = Math.floor((performance.now() - m.startTime)/m.loops);
+						console.log("average loop time: " + m.averageTime + "ms");					
+					}					
+				}
+
+			}	
+
+			function getRandomInt(min, max)
+			{
+				return min + (2 * Math.floor(Math.random() * max));
+			}					
+			
+			function getRandomDouble(min, max)
+			{				
+				return min + (Math.random() * (max - min));
+			}
+		</script>		
+	</Head>
+	
+	<BODY style="padding: 15px;">				
+		
+		<div id="container" style="display: flex; justify: center; justify-content: center;">
+
+			<div id="title" style="color: black; margin-left: 10%; width: 500px; font-size: 40pt; position: absolute; top: 15%;">Escape the Maze</div>
+			
+			<button id="start" style="color: black; background-color: lightyellow; width: 500px; font-size: 40pt; position: absolute; top: 35%;" 				
+				onclick="m.gameStarted = true; m.ClearMenu(); document.getElementById('hp').style.visibility = 'visible'; 
+				m.PlaceLevels(); requestAnimationFrame(main.MainLoop);">
+				Start
+			</button>					
+			
+			
+			<button id="options" style="color: black; background-color: lightyellow; width: 500px; font-size: 40pt; position: absolute; top: 55%;"
+				onclick="m.OpenOptions();">Options</button>
+			
+			<div id="gameWin" style="color: white; margin-left: 20%; width: 500px; font-size: 40pt; position: absolute; top: 83%;">			
+			</div>
+			
+			<div id="hp" style="color: red; margin-left: 44.9%; width: 500px; font-size: 40pt; position: absolute; top: 85%; visibility: hidden;">♥ ♥ ♥ ♥ ♥ </div>
+			
+			<div style="display: flex; justify: center; justify-content: center;">
+				<CANVAS id="myCanvas" width="680" height="680" style = "border: 1px solid #000; color: blue;">
+					Your browser does not support canvas.
+				</CANVAS>				
+			</div>
+			
+		</div>
+		
+		<audio id="boom" src="audio/boom.mp3"></audio>
+		<audio id="fireball" src="audio/fireball.mp3"></audio>
+		<audio id="bone_throw" src="audio/bone_throw.mp3"></audio>
+		<audio id="theme" src="audio/dark_scenario.wav"></audio>
+		<audio id="damage" src="audio/take_damage.mp3"></audio>		
+		
+		<SCRIPT>
+			var canvas = document.getElementById("myCanvas");
+			var gl = canvas.getContext("webgl");
+			var m = new main();
+			window.onkeydown = main.keyD;
+			window.onkeyup = main.keyU;
+			canvas.addEventListener("click",main.mouseH);					
+			
+			requestAnimationFrame(main.MainLoop);								
+			
+			m.CreateObject(1,Camera,[2,0,2],[0,0,0]);						
+			//m.CreateObject(1,Camera,[215,0,4],[0,0,0]);				
+			
+			m.CreateObject(1, Candle, [7, -0.7, 35], [0,0,0]);		
+			m.CreateObject(1, Candle, [5, -0.7, 12], [0,0,0]);		
+			m.CreateObject(1, Candle, [10, -0.7, 20], [0,0,0]);	
+			m.CreateObject(1, Candle, [15, -0.7, 12], [0,0,0]);	
+			
+			m.CreateObject(1, Candle, [18, -0.7, 20], [0,0,0]);		
+			m.CreateObject(1, Candle, [18, -0.7, 30], [0,0,0]);	
+			m.CreateObject(1, Candle, [18, -0.7, 40], [0,0,0]);	
+			
+			m.CreateObject(1, Candle, [30, -0.7, 20], [0,0,0]);	
+			m.CreateObject(1, Candle, [30, -0.7, 30], [0,0,0]);	
+			m.CreateObject(1, Candle, [30, -0.7, 40], [0,0,0]);	
+			
+			
+			m.CreateObject(1,Ground,[0,-1,0],[0,0,0]);																		
+
+			m.CreateObject(1, BossBoo, [215,1,15], [0,0,0]);
+						
+			requestAnimationFrame(main.MainLoop);								
+		</SCRIPT>				
+	</BODY>	
+	
+</HTML>		

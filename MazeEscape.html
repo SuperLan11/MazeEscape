@@ -1094,6 +1094,8 @@
 			
 			class WallCube extends GameObject
 			{
+				static sideLength = 2.0;
+				
 				constructor()
 				{
 					super();			
@@ -1101,20 +1103,99 @@
 					this.isTrigger = false;
 					this.buffer = gl.createBuffer();					
 
-					this.collisionRadius = 1.4;
+					this.collisionRadius = 1.4;					
+					
 					this.sideLength = 2.0;
 					
-					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+					this.isCube = true;																			
 					
-					this.isCube = true;														 											
-					
-					this.vertCount = 24;																							
+					// vert count and vertices are initialized later
+					this.vertCount = 0;																							
 				}
-				
+								
 				Update()
 				{
 					// wall does not move
-				}	
+				}
+				
+				CreateVertices(sidesToExclude)
+				{
+					this.vertices = [];
+					
+					// change what faces of wall to include based on adjacent walls
+					if(!isStringInList("front", sidesToExclude))
+					{
+						this.vertices.push(-1, -1, -1,  0, 0,
+											1, -1, -1,  1, 0,
+											1, 1, -1,  1, 1,
+							
+											1, 1, -1,  1, 1,
+											-1, 1, -1,  0, 1,
+											-1, -1, -1,  0, 0);
+						this.vertCount += 6;
+					}							
+					if(!isStringInList("left", sidesToExclude))
+					{
+						this.vertices.push(-1, -1, -1,  0, 0,
+											-1, -1, 1,  -1, 0,
+											-1, 1, 1,  -1, -1,
+											
+											-1, 1, 1,  -1, -1,
+											-1, 1, -1,  0, -1,
+											-1, -1, -1,  0, 0);
+						this.vertCount += 6;
+					}
+					if(!isStringInList("back", sidesToExclude))
+					{
+						this.vertices.push(-1, -1, 1,  0, 0,
+											1, -1, 1,  1, 0,
+											1, 1, 1,  1, 1,
+											
+											1, 1, 1,  1, 1,
+											-1, 1, 1,  0, 1,
+											-1, -1, 1,  0, 0);
+						this.vertCount += 6;
+					}
+					if(!isStringInList("right", sidesToExclude))
+					{
+						this.vertices.push(1, -1, -1,  0, 0,
+											1, -1, 1,  -1, 0,
+											1, 1, 1,  -1, -1,
+											
+											1, 1, 1,  -1, -1,
+											1, 1, -1,  0, -1,
+											1, -1, -1,  0, 0);	
+						this.vertCount += 6;
+					}					
+					
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);																						 									
+				}
+
+				GetAdjacentWalls(level, row, col)
+				{		
+					// if there is a cube adjacent on a particular side, remove the wall on that side
+					var adjWalls = [];
+															
+					if(col != 0 && (level[row][col-1] == 1 || level[row][col-1] == 2))
+					{
+						adjWalls.push("left");
+					}	
+					if(col < level[0].length-1 && (level[row][col+1] == 1 || level[row][col+1] == 2))
+					{
+						adjWalls.push("right");
+					}
+					if(row != 0 && (level[row-1][col] == 1 || level[row-1][col] == 2))
+					{
+						adjWalls.push("front");
+					}					
+					if(row < level.length-1 && (level[row+1][col] == 1 || level[row+1][col] == 2))
+					{
+						adjWalls.push("back");
+					}					
+						
+					return adjWalls;					
+				}							
 
 				Render(program)
 				{
@@ -1160,7 +1241,7 @@
 					//gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ibuffer);
 					//gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint8Array(this.indexOrder),gl.STATIC_DRAW);
 					//gl.drawElements(gl.TRIANGLES,this.indexOrder.length,gl.UNSIGNED_BYTE,0);
-					gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.vertCount);
+					gl.drawArrays(gl.TRIANGLES, 0, this.vertCount);
 				}				
 			}
 			
@@ -1168,50 +1249,7 @@
 			{
 				constructor()
 				{					
-					super();
-					
-					this.vertices =
-					[
-						//X, Y,  Z,  U,  V,
-						
-						// front wall of cube
-						-1, -1, -1,  0, 0,
-						1, -1, -1,  1, 0,
-						1, 1, -1,  1, 1,
-						
-						1, 1, -1,  1, 1,
-						-1, 1, -1,  0, 1,
-						-1, -1, -1,  0, 0,						
-						
-						// left wall of cube
-						-1, -1, -1,  0, 0,
-						-1, -1, 1,  -1, 0,
-						-1, 1, 1,  -1, -1,
-						
-						-1, 1, 1,  -1, -1,
-						-1, 1, -1,  0, -1,
-						-1, -1, -1,  0, 0,
-						
-						// right wall of cube
-						1, -1, -1,  0, 0,
-						1, -1, 1,  -1, 0,
-						1, 1, 1,  -1, -1,
-						
-						1, 1, 1,  -1, -1,
-						1, 1, -1,  0, -1,
-						1, -1, -1,  0, 0,
-						
-						// back wall of cube
-						-1, -1, 1,  0, 0,
-						1, -1, 1,  1, 0,
-						1, 1, 1,  1, 1,
-						
-						1, 1, 1,  1, 1,
-						-1, 1, 1,  0, 1,
-						-1, -1, 1,  0, 0						
-					];																					
-										
-					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
+					super();									
 										
 					this.MyPicture = wallTexture1;				
 					this.MyTexture = gl.createTexture();
@@ -1227,50 +1265,7 @@
 			
 				constructor()
 				{					
-					super();
-					
-					this.vertices =
-					[
-						//X, Y,  Z,  U,  V,
-						
-						// front wall of cube
-						-1, -1, -1,  0, 0,
-						1, -1, -1,  1, 0,
-						1, 1, -1,  1, 1,
-						
-						1, 1, -1,  1, 1,
-						-1, 1, -1,  0, 1,
-						-1, -1, -1,  0, 0,						
-						
-						// left wall of cube
-						-1, -1, -1,  0, 0,
-						-1, -1, 1,  1, 0,
-						-1, 1, 1,  1, 1,
-						
-						-1, 1, 1,  0, 0,
-						-1, 1, -1,  1, 0,
-						-1, -1, -1,  1, 1,
-						
-						// right wall of cube
-						1, -1, -1,  0, 0,
-						1, -1, 1,  1, 0,
-						1, 1, 1,  1, 1,
-						
-						1, 1, 1,  0, 0,
-						1, 1, -1,  1, 0,
-						1, -1, -1,  1, 1,
-						
-						// back wall of cube
-						-1, -1, 1,  0, 0,
-						1, -1, 1,  1, 0,
-						1, 1, 1,  1, 1,
-						
-						1, 1, 1,  1, 1,
-						-1, 1, 1,  0, 1,
-						-1, -1, 1,  0, 0						
-					];																			
-										
-					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
+					super();									
 					
 					this.MyPicture = wallTexture2;
 					this.MyTexture = gl.createTexture();
@@ -1306,7 +1301,7 @@
 				
 				Update()
 				{
-					// wip
+					// is different for each enemy
 				}					
 				
 				FlashRed()
@@ -2432,21 +2427,24 @@
 							switch(level[i][j])
 							{
 								case 0:
-									// a 0 in Level1 represents empty space	
-									// create ceiling block above empty tiles
+									// a 0 represents empty space	
+									// creates a ceiling block above empty tiles (wip)
 									//this.CreateObject(1, WallCube1, [2*j,6,2*i], [0,0,0]);																			
 									break;
 								case 1:
 									for(let k = 0; k < 1; k++)
-									{
+									{										
 										var cube = this.CreateObject(1, WallCube1, [levelXOffset+2*j,k*2,2*i], [0,0,0]);											
-										//console.log("making wall");
+										var sidesToExclude = cube.GetAdjacentWalls(level, i, j);										
+										cube.CreateVertices(sidesToExclude);																
 									}									
 									break;
 								case 2:									
 									for(let k = 0; k < 1; k++)
 									{
-										this.CreateObject(1, WallCube2, [levelXOffset+2*j,k*2,2*i], [0,0,0]);									
+										var cube = this.CreateObject(1, WallCube2, [levelXOffset+2*j,k*2,2*i], [0,0,0]);											
+										var sidesToExclude = cube.GetAdjacentWalls(level, i, j);										
+										cube.CreateVertices(sidesToExclude);
 									}									
 									break;
 								case 3:
@@ -2501,8 +2499,8 @@
 							}																					
 						}
 					}
-				}
-				
+				}							
+							
 				AdvanceLevel()
 				{
 					m.DestroyCamera();
@@ -2701,11 +2699,11 @@
 					{
 						this.messageTimer--;
 					}
-					// could include this to skip the next conditional check
-					/*else
+					// minor optimization to skip the next conditional check
+					else
 					{
 						return;
-					}*/
+					}
 					
 					if(this.messageTimer <= 0 && !this.gameWon)
 					{
@@ -2919,7 +2917,9 @@
 						m.ClearMenu();
 						document.getElementById("hp").style.visibility = "visible";	
 						
-						m.PlaceLevels();							
+						// also checks for excess walls
+						m.PlaceLevels();																
+						
 						requestAnimationFrame(main.MainLoop);			
 					};
 					
@@ -3055,8 +3055,27 @@
 					this.PlaceMaze(this.Level3);
 					
 					this.level = 1;
+						
+					//this.RemoveExcessWalls();	
+					
 					this.levelsPlaced = true;
 				}
+				
+				/*RemoveExcessWalls()
+				{
+					for(var solidKey in this.Solid)
+					{
+						if(this.Solid[solidKey] instanceof WallCube)
+						{
+							// get adjacent walls
+							var adjWalls = this.Solid[solidKey].GetAdjacentWalls();
+							console.log("adj walls: " + adjWalls);
+							this.Solid[solidKey].CreateVertices(adjWalls);
+							//console.log("checking for inner walls");
+						}
+					}
+					console.log("finished checking walls");
+				}*/
 				
 				//Static call backs go down here
 				//   |
@@ -3122,6 +3141,18 @@
 			{				
 				return min + (Math.random() * (max - min));
 			}
+			
+			function isStringInList(str, list)
+			{
+				for(let i = 0; i < list.length; i++)
+				{
+					if(list[i] == str)
+					{
+						return true;
+					}
+				}
+				return false;
+			}
 		</script>		
 	</Head>
 	
@@ -3184,12 +3215,11 @@
 			
 			m.CreateObject(1, Candle, [30, -0.7, 20], [0,0,0]);	
 			m.CreateObject(1, Candle, [30, -0.7, 30], [0,0,0]);	
-			m.CreateObject(1, Candle, [30, -0.7, 40], [0,0,0]);	
-			
-			
+			m.CreateObject(1, Candle, [30, -0.7, 40], [0,0,0]);				
+					
 			m.CreateObject(1,Ground,[0,-1,0],[0,0,0]);																		
 
-			m.CreateObject(1, BossBoo, [215,1,15], [0,0,0]);
+			m.CreateObject(1, BossBoo, [215,1,15], [0,0,0]);			
 						
 			requestAnimationFrame(main.MainLoop);								
 		</SCRIPT>				

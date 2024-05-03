@@ -704,9 +704,9 @@
 					
 					this.collisionRadius = Math.sqrt(2*(nearVal**2));	
 
-					this.walkSpeed = 0.05;
-					this.rotateSpeed = 0.02;
-					this.strafeSpeed = 0.05;
+					this.walkSpeed = 0.05 * m.gameSpeed;					
+					this.rotateSpeed = 0.02 * m.gameSpeed;
+					this.strafeSpeed = 0.05 * m.gameSpeed;
 				}
 				
 				Update()
@@ -715,29 +715,31 @@
 					
 					this.angVelocity = [0,0,0];
 					this.velocity = [0,0,0];
+					
 					// need to call this to update this.transform
 					this.transform.doRotations(this.rot);
 										
 					if(m.TestKey("A"))
 					{						
-						this.angVelocity[1] = -this.rotateSpeed * m.gameSpeed;
+						this.angVelocity[1] = -this.rotateSpeed;
 					}
 					if(m.TestKey("D"))
 					{						
-						this.angVelocity[1] = this.rotateSpeed * m.gameSpeed;
-					}	
+						this.angVelocity[1] = this.rotateSpeed;
+					}
+					
 					if(m.TestKey("W"))
 					{								
 						for(let i = 0; i < 3; i++)
 						{
-							this.velocity[i] = this.transform.forward[i] * this.walkSpeed * m.gameSpeed;
+							this.velocity[i] = this.transform.forward[i] * this.walkSpeed;
 						}
 					}
 					if(m.TestKey("S"))
 					{						
 						for(let i = 0; i < 3; i++)
 						{
-							this.velocity[i] = this.transform.forward[i] * -this.walkSpeed * m.gameSpeed;
+							this.velocity[i] = this.transform.forward[i] * -this.walkSpeed;
 						}
 					}		
 
@@ -745,18 +747,16 @@
 					{						
 						for(let i = 0; i < 3; i++)
 						{
-							this.velocity[i] = this.transform.right[i] * -this.strafeSpeed * m.gameSpeed;
+							this.velocity[i] = this.transform.right[i] * -this.strafeSpeed;
 						}
 					}		
-
 					if(m.TestKey("X"))
 					{						
 						for(let i = 0; i < 3; i++)
 						{
-							this.velocity[i] = this.transform.right[i] * this.strafeSpeed * m.gameSpeed;
+							this.velocity[i] = this.transform.right[i] * this.strafeSpeed;
 						}
 					}					
-
 
 					// shoot a bullet if space pressed
 					if(" " in m.Keys && m.Keys[" "])
@@ -2873,11 +2873,11 @@
 					document.getElementById("start").remove();
 					document.getElementById("options").remove();									
 					
-					var newElement = document.createElement("button");
-					newElement.innerHTML = "Game Speed 0.5x";
-					newElement.color = black;
-					newElement.style = "color: black; background-color: lightgray; width: 500px; font-size: 40pt; position: absolute; top: 30%;";
-					newElement.onclick = function()
+					var newElement1 = document.createElement("button");
+					newElement1.innerHTML = "Game Speed 0.5x";
+					newElement1.color = black;
+					newElement1.style = "color: black; background-color: lightgray; width: 500px; font-size: 40pt; position: absolute; top: 30%;";
+					newElement1.onclick = function()
 					{
 						m.gameSpeed = 0.8;
 					}
@@ -2911,15 +2911,36 @@
 						document.getElementById("hp").style.visibility = "visible";	
 						
 						// also checks for excess walls
-						m.PlaceLevels();																
+						m.PlaceLevels();
+						// wait to make objects like camera so gamespeed takes effect
+						m.CreateMainObjects();
 						
-						requestAnimationFrame(main.MainLoop);			
+						requestAnimationFrame(main.MainLoop);		
 					};
 					
-					document.getElementById("container").appendChild(newElement);
+					document.getElementById("container").appendChild(newElement1);
 					document.getElementById("container").appendChild(newElement2);
 					document.getElementById("container").appendChild(newElement3);
 					document.getElementById("container").appendChild(newElement4);
+					
+					this.StyleButtons();					
+				}
+				
+				StyleButtons()
+				{
+					var buttons = document.querySelectorAll("button");
+					for(let i = 0; i < buttons.length; i++)
+					{
+						buttons[i].onmouseover = function()
+						{
+							this.style.backgroundColor = "darkgray";
+						}
+						
+						buttons[i].onmouseout = function()
+						{
+							this.style.backgroundColor = "lightgray";
+						}
+					}
 				}
 				
 				ClearMenu()
@@ -3047,28 +3068,33 @@
 					this.SetBorders(this.Level3);
 					this.PlaceMaze(this.Level3);
 					
-					this.level = 1;
-						
-					//this.RemoveExcessWalls();	
+					this.level = 1;										
 					
 					this.levelsPlaced = true;
 				}
 				
-				/*RemoveExcessWalls()
+				CreateMainObjects()
 				{
-					for(var solidKey in this.Solid)
-					{
-						if(this.Solid[solidKey] instanceof WallCube)
-						{
-							// get adjacent walls
-							var adjWalls = this.Solid[solidKey].GetAdjacentWalls();
-							console.log("adj walls: " + adjWalls);
-							this.Solid[solidKey].CreateVertices(adjWalls);
-							//console.log("checking for inner walls");
-						}
-					}
-					console.log("finished checking walls");
-				}*/
+					m.CreateObject(1,Camera,[2,0,2],[0,0,0]);						
+					//m.CreateObject(1,Camera,[215,0,4],[0,0,0]);				
+					
+					m.CreateObject(1, Candle, [7, -0.7, 35], [0,0,0]);		
+					m.CreateObject(1, Candle, [5, -0.7, 12], [0,0,0]);		
+					m.CreateObject(1, Candle, [10, -0.7, 20], [0,0,0]);	
+					m.CreateObject(1, Candle, [15, -0.7, 12], [0,0,0]);	
+					
+					m.CreateObject(1, Candle, [18, -0.7, 20], [0,0,0]);		
+					m.CreateObject(1, Candle, [18, -0.7, 30], [0,0,0]);	
+					m.CreateObject(1, Candle, [18, -0.7, 40], [0,0,0]);	
+					
+					m.CreateObject(1, Candle, [30, -0.7, 20], [0,0,0]);	
+					m.CreateObject(1, Candle, [30, -0.7, 30], [0,0,0]);	
+					m.CreateObject(1, Candle, [30, -0.7, 40], [0,0,0]);				
+							
+					m.CreateObject(1, Ground,[0,-1,0],[0,0,0]);																		
+
+					m.CreateObject(1, BossBoo, [215,1,15], [0,0,0]);					
+				}							
 				
 				//Static call backs go down here
 				//   |
@@ -3095,6 +3121,7 @@
 					{
 						m.averageTime = 0;	
 						m.loops = 0;
+						// make title screen background color dark gray
 						gl.clearColor(0.3, 0.3, 0.3, 1.0);
 						gl.clear(gl.COLOR_BUFFER_BIT);
 					}				
@@ -3105,9 +3132,10 @@
 							m.startTime = performance.now();
 						}						
 						
+						// loops music
 						document.getElementById("theme").play();																																			
 						
-						// make background black every flame
+						// make background black every frame
 						gl.clearColor(0,0,0,1);
 						gl.clear(gl.COLOR_BUFFER_BIT);
 							
@@ -3158,7 +3186,7 @@
 			
 			<button id="start" style="color: black; background-color: lightgray; width: 500px; font-size: 40pt; position: absolute; top: 35%;" 				
 				onclick="m.gameStarted = true; m.ClearMenu(); document.getElementById('hp').style.visibility = 'visible'; 
-				m.PlaceLevels(); requestAnimationFrame(main.MainLoop);">
+				m.PlaceLevels(); m.CreateMainObjects(); requestAnimationFrame(main.MainLoop);">
 				Start
 			</button>					
 			
@@ -3191,31 +3219,11 @@
 			var m = new main();
 			window.onkeydown = main.keyD;
 			window.onkeyup = main.keyU;
-			canvas.addEventListener("click",main.mouseH);					
-			
-			requestAnimationFrame(main.MainLoop);								
-			
-			m.CreateObject(1,Camera,[2,0,2],[0,0,0]);						
-			//m.CreateObject(1,Camera,[215,0,4],[0,0,0]);				
-			
-			m.CreateObject(1, Candle, [7, -0.7, 35], [0,0,0]);		
-			m.CreateObject(1, Candle, [5, -0.7, 12], [0,0,0]);		
-			m.CreateObject(1, Candle, [10, -0.7, 20], [0,0,0]);	
-			m.CreateObject(1, Candle, [15, -0.7, 12], [0,0,0]);	
-			
-			m.CreateObject(1, Candle, [18, -0.7, 20], [0,0,0]);		
-			m.CreateObject(1, Candle, [18, -0.7, 30], [0,0,0]);	
-			m.CreateObject(1, Candle, [18, -0.7, 40], [0,0,0]);	
-			
-			m.CreateObject(1, Candle, [30, -0.7, 20], [0,0,0]);	
-			m.CreateObject(1, Candle, [30, -0.7, 30], [0,0,0]);	
-			m.CreateObject(1, Candle, [30, -0.7, 40], [0,0,0]);				
-					
-			m.CreateObject(1,Ground,[0,-1,0],[0,0,0]);																		
-
-			m.CreateObject(1, BossBoo, [215,1,15], [0,0,0]);					
+			canvas.addEventListener("click",main.mouseH);																						
 						
-			requestAnimationFrame(main.MainLoop);								
+			requestAnimationFrame(main.MainLoop);
+
+			m.StyleButtons();
 		</SCRIPT>				
 	</BODY>	
 	
